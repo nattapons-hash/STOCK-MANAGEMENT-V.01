@@ -1,0 +1,1739 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบบริหารสต๊อกและเปรียบเทียบผลต่างการนับ (Stock Management & Diff Matrix)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- SheetJS สำหรับ Import & Export Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Kanit', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-3 md:p-6">
+
+    <!-- Loading Indicator overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black/30 backdrop-blur-[1px] hidden flex-col items-center justify-center z-[100]">
+        <div class="bg-white p-5 rounded-2xl shadow-xl flex items-center gap-4">
+            <svg class="animate-spin h-7 w-7 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="text-gray-700 font-semibold text-sm">กำลังเชื่อมต่อฐานข้อมูล Google Sheets...</span>
+        </div>
+    </div>
+
+    <div class="max-w-[98%] mx-auto space-y-5">
+        
+        <!-- Header Section -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-5 rounded-2xl shadow-sm border border-gray-200 gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">ระบบบริหารจัดการและตรวจนับสต๊อกอุปกรณ์</h1>
+                <p class="text-gray-500 text-xs md:text-sm mt-1">จัดการเบิก-รับสินค้า, แจ้งเตือนสั่งซื้อ, ลงบันทึกตรวจนับ และดูตารางเปรียบเทียบยอด Diff ย้อนหลังทุกรอบ</p>
+            </div>
+            
+            <div class="flex flex-wrap gap-2">
+                <button onclick="loadDataFromGoogleSheets()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
+                    🔄 รีเฟรชข้อมูล Real-time
+                </button>
+                <button onclick="exportAllToExcel()" class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
+                    📊 ส่งออกรายงานสต๊อกทั้งหมด (Excel Multi-Sheet)
+                </button>
+                <button onclick="switchTab('stock'); toggleDeleteMode(true);" class="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
+                    🗑️ ลบรายการสินค้า (เลือกทีละรายการ)
+                </button>
+            </div>
+        </div>
+
+        <!-- KPI Summary Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <div onclick="switchTab('stock'); setFilter('ALL');" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 cursor-pointer hover:border-blue-400 transition">
+                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">รายการสินค้าทั้งหมด</p>
+                <h3 id="kpiTotalItems" class="text-2xl md:text-3xl font-bold text-gray-800 mt-1">0</h3>
+            </div>
+            <div onclick="switchTab('stock'); setFilter('NEED_ORDER');" class="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-200 cursor-pointer hover:border-red-400 transition">
+                <p class="text-xs font-semibold text-red-600 uppercase tracking-wider">🚨 ต้องสั่งซื้อ (&lt;= Safety)</p>
+                <h3 id="kpiNeedOrder" class="text-2xl md:text-3xl font-bold text-red-600 mt-1">0</h3>
+            </div>
+            <div onclick="switchTab('stock'); setFilter('NEAR_SAFETY');" class="bg-amber-50 p-4 rounded-2xl shadow-sm border border-amber-200 cursor-pointer hover:border-amber-400 transition">
+                <p class="text-xs font-semibold text-amber-600 uppercase tracking-wider">⚠️ ใกล้ถึงยอดสั่งซื้อ (+20%)</p>
+                <h3 id="kpiNearSafety" class="text-2xl md:text-3xl font-bold text-amber-600 mt-1">0</h3>
+            </div>
+            <div onclick="switchTab('matrix')" class="bg-purple-50 p-4 rounded-2xl shadow-sm border border-purple-200 cursor-pointer hover:border-purple-400 transition">
+                <p class="text-xs font-semibold text-purple-600 uppercase tracking-wider">📊 รอบการตรวจนับทั้งหมด</p>
+                <h3 id="kpiAuditRounds" class="text-2xl md:text-3xl font-bold text-purple-600 mt-1">0</h3>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="flex flex-wrap border-b-2 border-blue-600 gap-1.5 pt-2">
+            <button id="tabBtn-master" onclick="switchTab('master')" class="px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border-t border-x border-blue-600 border-b-0 text-blue-700 bg-white shadow-sm z-10 -mb-0.5">
+                📦 Product Master (เพิ่ม/อัปโหลดสินค้า)
+            </button>
+            <button id="tabBtn-matrix" onclick="switchTab('matrix')" class="px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border border-gray-300 text-gray-700 bg-gray-200/70 hover:bg-blue-100 hover:text-blue-700">
+                📊 ตารางเปรียบเทียบการนับสต๊อก (Matrix Diff)
+            </button>
+            <button id="tabBtn-trans" onclick="switchTab('trans')" class="px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border border-gray-300 text-gray-700 bg-gray-200/70 hover:bg-blue-100 hover:text-blue-700">
+                🔄 ทำรายการ เบิก - รับของ
+            </button>
+            <button id="tabBtn-audit" onclick="switchTab('audit')" class="px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border border-gray-300 text-gray-700 bg-gray-200/70 hover:bg-blue-100 hover:text-blue-700">
+                📝 บันทึกการตรวจนับรอบใหม่
+            </button>
+            <button id="tabBtn-stock" onclick="switchTab('stock')" class="px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border border-gray-300 text-gray-700 bg-gray-200/70 hover:bg-blue-100 hover:text-blue-700">
+                📋 สต๊อกคงเหลือ & Safety Stock
+            </button>
+            <button id="tabBtn-log" onclick="switchTab('log')" class="px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border border-gray-300 text-gray-700 bg-gray-200/70 hover:bg-blue-100 hover:text-blue-700">
+                🕒 ประวัติการเบิก-รับสินค้า
+            </button>
+        </div>
+
+        <!-- TAB Product Master -->
+        <div id="tabView-master" class="bg-white p-6 rounded-b-2xl shadow-sm border border-t-0 border-gray-200 space-y-8">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-4 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">Product Master (เริ่มต้นสร้างรายการสินค้า)</h2>
+                    <p class="text-xs text-gray-400 mt-1">เพิ่มสินค้าเข้าสู่ระบบสต๊อกด้วยการกรอกฟอร์ม หรืออัปโหลดไฟล์ Excel เพื่อใช้ในการเบิก-รับและตรวจนับ</p>
+                </div>
+                <button onclick="openCategoryModal()" class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-2 rounded-xl text-xs sm:text-sm transition flex items-center gap-2 shadow-sm">
+                    ⚙️ จัดการหมวดหมู่สินค้า (เพิ่ม/แก้/ลบ)
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- ฟอร์มกรอกทีละรายการ -->
+                <div class="lg:col-span-1 bg-gray-50 p-5 rounded-2xl border border-gray-200 space-y-4">
+                    <h3 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                        ✏️ กรอกข้อมูลเพิ่มสินค้าใหม่
+                    </h3>
+                    <form id="addProductForm" onsubmit="handleAddSingleProduct(event)" class="space-y-3">
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-xs font-semibold text-gray-600">หมวดหมู่สินค้า</label>
+                                <button type="button" onclick="openCategoryModal()" class="text-[11px] text-blue-600 hover:underline">+ จัดการหมวดหมู่</button>
+                            </div>
+                            <select id="pmCategory" required class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">รหัสสินค้า (Mat.No.)</label>
+                            <input type="text" id="pmId" required placeholder="เช่น 001" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">ชื่อสินค้า</label>
+                            <input type="text" id="pmName" required placeholder="เช่น น้ำยาเคลือบเงา" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">จำนวนตั้งต้น</label>
+                                <input type="number" id="pmQty" min="0" required placeholder="0" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">Safety Stock</label>
+                                <input type="number" id="pmSafety" min="0" placeholder="0" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">หน่วยนับ</label>
+                                <input type="text" id="pmUnit" required placeholder="ชิ้น, ขวด" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition text-sm shadow-md mt-2">
+                            + บันทึกเพิ่มสินค้า
+                        </button>
+                    </form>
+                </div>
+
+                <!-- อัปโหลด Excel -->
+                <div class="lg:col-span-2 bg-emerald-50/50 p-5 rounded-2xl border border-emerald-200 space-y-4 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-base font-bold text-emerald-900 flex items-center gap-2">
+                            📂 อัปโหลดไฟล์ Excel เข้าสต๊อก (Bulk Import)
+                        </h3>
+                        <p class="text-xs text-gray-600 mt-1">อัปโหลดไฟล์ Excel เพื่ออัปเดต/เพิ่มรายการสินค้าใหม่เข้าสู่ระบบ (หากมีรหัสสินค้าเดิมจะทำการอัปเดตข้อมูล)</p>
+                        
+                        <div class="mt-4 border-2 border-dashed border-emerald-300 rounded-xl p-6 text-center bg-white hover:bg-emerald-50/30 transition cursor-pointer" onclick="document.getElementById('excelFileInput').click()">
+                            <svg class="mx-auto h-12 w-12 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 0115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                            <p class="mt-2 text-sm font-semibold text-emerald-800">คลิกเพื่อเลือกไฟล์ Excel (.xlsx, .xls)</p>
+                            <p class="text-xs text-gray-400 mt-1">หรือลากไฟล์มาวางที่นี่</p>
+                            <input type="file" id="excelFileInput" accept=".xlsx, .xls" class="hidden" onchange="handleExcelUpload(event)">
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl border border-emerald-100 text-xs text-gray-600 space-y-1">
+                        <span class="font-bold text-emerald-800">💡 คำแนะนำรูปแบบไฟล์ Excel:</span>
+                        <p>ตารางควรมีหัวคอลัมน์ชื่อ <b>Mat.No.</b> | <b>ชื่อสินค้า</b> | <b>หมวดหมู่</b> | <b>จำนวน</b> | <b>Safety Stock</b> | <b>หน่วย</b></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: Matrix Table -->
+        <div id="tabView-matrix" class="hidden bg-white p-5 rounded-b-2xl shadow-sm border border-t-0 border-gray-200 space-y-4">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-800">ตารางเปรียบเทียบผลต่างการนับสต๊อก (Stock Audit Diff Matrix)</h2>
+                    <p class="text-xs text-gray-500">* ไฮไลท์ <span class="text-green-700 font-bold bg-green-100 px-2 py-0.5 rounded border border-green-200">สีเขียว = เกิน (+)</span> | <span class="text-red-600 font-bold bg-rose-100 px-2 py-0.5 rounded border border-red-200">สีแดง = ขาด (-)</span> | สามารถกดปุ่ม 🗑️ ที่หัวคอลัมน์เพื่อลบข้อมูลรอบตรวจนับได้</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <div class="flex items-center gap-1.5 bg-gray-50 p-1 px-2 rounded-xl border border-gray-200">
+                        <label class="font-semibold text-gray-600">เลือกหมวดหมู่:</label>
+                        <select id="matrixCategoryFilter" onchange="renderMatrixTable()" class="bg-white border border-gray-300 rounded-lg p-1 text-xs outline-none focus:ring-2 focus:ring-purple-500 font-medium">
+                        </select>
+                    </div>
+                    <button onclick="toggleAllCategories(true)" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 font-medium transition">
+                        ➕ ขยายทั้งหมด
+                    </button>
+                    <button onclick="toggleAllCategories(false)" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 font-medium transition">
+                        ➖ พับทั้งหมด
+                    </button>
+                </div>
+            </div>
+
+            <div id="matrixContainer" class="overflow-x-auto border border-gray-300 rounded-xl max-h-[72vh] relative">
+                <table class="text-left border-collapse text-xs whitespace-nowrap min-w-full">
+                    <thead id="matrixHead" class="sticky top-0 z-20 select-none shadow-sm bg-gray-100"></thead>
+                    <tbody id="matrixBody" class="divide-y divide-gray-200 text-gray-800"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB เบิก-รับ -->
+        <div id="tabView-trans" class="hidden bg-white p-6 rounded-b-2xl shadow-sm border border-t-0 border-gray-200 space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-4 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">ระบบเบิก - รับสินค้าเข้าสต๊อก</h2>
+                    <p class="text-xs text-gray-400 mt-1">เลือกหมวดหมู่ ติ๊กรายการที่ต้องการ และกรอกจำนวนพร้อมระบุหมายเหตุเฉพาะรายการได้ทันที</p>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <label class="text-sm font-medium text-gray-700">หมวดหมู่สินค้า:</label>
+                    <select id="selectCategory" onchange="renderFormItems()" class="border border-blue-500 text-blue-700 bg-blue-50 font-medium rounded-xl px-4 py-2 text-sm focus:outline-none">
+                    </select>
+                </div>
+            </div>
+
+            <form id="multiTransForm" onsubmit="handleMultiTransaction(event)">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-5 rounded-xl mb-6">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">ประเภททำรายการ</label>
+                        <div class="flex gap-6 mt-2">
+                            <label class="inline-flex items-center text-sm cursor-pointer font-medium text-gray-700">
+                                <input type="radio" name="transType" value="OUT" checked onchange="updateQtyLimits()" class="w-4 h-4 text-blue-600"> 
+                                <span class="ml-2">เบิกออก (OUT)</span>
+                            </label>
+                            <label class="inline-flex items-center text-sm cursor-pointer font-medium text-gray-700">
+                                <input type="radio" name="transType" value="IN" onchange="updateQtyLimits()" class="w-4 h-4 text-blue-600"> 
+                                <span class="ml-2">รับเข้า (IN)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">📅 วันที่ทำรายการเบิก-รับ</label>
+                        <input type="date" id="transDate" required class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 font-medium cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-sm font-semibold text-gray-700">ผู้ทำรายการ / ทีมที่เบิก</label>
+                            <button type="button" onclick="openUserModal()" class="text-xs text-blue-600 hover:underline font-medium">+ จัดการรายชื่อ</button>
+                        </div>
+                        <select id="formUserSelect" required class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 font-medium cursor-pointer">
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-2">หมายเหตุส่วนกลาง <span class="text-xs text-gray-400 font-normal">(ใช้เมื่อรายการย่อยไม่ได้ระบุ)</span></label>
+                        <input type="text" id="transRemark" placeholder="เช่น นำไปใช้ทำความสะอาดโซน A" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none text-gray-800 font-medium">
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto border border-gray-200 rounded-xl mb-6">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-gray-100 text-gray-600 text-xs font-semibold uppercase">
+                            <tr>
+                                <th class="p-4 text-center w-16">เลือก</th>
+                                <th class="p-4">Mat.No.</th>
+                                <th class="p-4">รายการสินค้า</th>
+                                <th class="p-4 text-center">คงเหลือในคลัง</th>
+                                <th class="p-4 text-center w-36">จำนวนที่เบิก/รับ</th>
+                                <th class="p-4 w-64">หมายเหตุเฉพาะรายการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="formItemsTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
+                    </table>
+                </div>
+
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition text-base shadow-md">
+                        บันทึกรายการที่เลือก
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- TAB ตรวจนับรอบใหม่ -->
+        <div id="tabView-audit" class="hidden bg-white p-6 rounded-b-2xl shadow-sm border border-t-0 border-gray-200 space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-4 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">ลงบันทึกการตรวจนับสต๊อกรอบใหม่ (Add New Audit Session)</h2>
+                    <p class="text-xs text-gray-400 mt-1">เลือกวันที่จากปฏิทิน เลือกหมวดหมู่ และกรอกยอดนับจริงเพื่อเพิ่มคอลัมน์รอบใหม่ในตาราง Matrix</p>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <label class="text-sm font-medium text-purple-900">หมวดหมู่สินค้า:</label>
+                    <select id="selectAuditCategory" onchange="renderNewAuditForm()" class="border border-purple-500 text-purple-800 bg-purple-50 font-medium rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    </select>
+                </div>
+            </div>
+
+            <form id="newAuditForm" onsubmit="handleSaveNewAudit(event)">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-purple-50 p-4 rounded-xl border border-purple-100 mb-6">
+                    <div>
+                        <label class="block text-xs font-semibold text-purple-900 mb-1">📅 วันที่ตรวจนับ (คลิกเพื่อเลือกปฏิทิน)</label>
+                        <input type="date" id="newAuditDate" required class="w-full border border-purple-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none text-purple-900 font-medium cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-xs font-semibold text-purple-900">ผู้ลงบันทึกข้อมูล / ทีมตรวจนับ</label>
+                            <button type="button" onclick="openAuditUserModal()" class="text-xs text-purple-700 hover:underline font-medium">+ จัดการรายชื่อผู้ตรวจนับ</button>
+                        </div>
+                        <select id="newAuditUserSelect" required class="w-full border border-purple-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-purple-500 outline-none text-purple-900 font-medium cursor-pointer">
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto border border-gray-200 rounded-xl mb-6">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-gray-100 text-gray-600 text-xs font-semibold uppercase">
+                            <tr>
+                                <th class="p-3 w-20">Mat.No.</th>
+                                <th class="p-3">ชื่อสินค้า</th>
+                                <th class="p-3 text-center">หน่วย</th>
+                                <th class="p-3 text-center">คงเหลือล่าสุด</th>
+                                <th class="p-3 text-center w-36">ยอดนับจริงรอบนี้</th>
+                            </tr>
+                        </thead>
+                        <tbody id="newAuditTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
+                    </table>
+                </div>
+
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-8 py-3 rounded-xl transition text-base shadow-md">
+                        บันทึกยอดนับจริงรอบนี้เข้า Matrix
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- TAB สต๊อกคงเหลือ & Safety Stock -->
+        <div id="tabView-stock" class="hidden bg-white p-6 rounded-b-2xl shadow-sm border border-t-0 border-gray-200 space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-4 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">ตารางแสดงรายการสต๊อกคงเหลือปัจจุบัน</h2>
+                    <p class="text-xs text-gray-400 mt-1">ตรวจสอบสถานะ ปรับแก้ไขยอด Safety Stock หรือเปิดโหมดเลือกลบรายการสินค้าได้ที่ตารางนี้</p>
+                </div>
+                
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- ปุ่มเปิด/ปิดโหมดลบรายการสินค้า -->
+                    <div id="deleteControlArea">
+                        <button id="btnStartDeleteMode" onclick="toggleDeleteMode(true)" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-semibold px-4 py-2 rounded-xl text-sm transition flex items-center gap-1.5 shadow-sm">
+                            🗑️ จัดการลบสินค้า
+                        </button>
+                        <div id="deleteActiveBar" class="hidden flex items-center gap-2">
+                            <button onclick="deleteSelectedProducts()" class="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition flex items-center gap-1.5 shadow-sm">
+                                💥 ยืนยันลบรายการที่เลือก
+                            </button>
+                            <button onclick="toggleDeleteMode(false)" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold px-4 py-2 rounded-xl text-sm transition flex items-center gap-1.5 shadow-sm">
+                                ✅ จบการลบ
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label for="stockCategoryFilter" class="text-sm font-medium text-gray-700">หมวดหมู่สินค้า:</label>
+                        <select id="stockCategoryFilter" onchange="renderQuickStockTable()" class="border border-blue-500 text-blue-700 bg-blue-50 font-medium rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </select>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label for="filterStatus" class="text-sm font-medium text-gray-700">กรองตามสถานะ:</label>
+                        <select id="filterStatus" onchange="renderApp()" class="border border-gray-300 text-gray-700 bg-white font-medium rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="ALL">แสดงทั้งหมด</option>
+                            <option value="NEED_ORDER">🚨 ต้องสั่งซื้อ (&lt;= Safety)</option>
+                            <option value="NEAR_SAFETY">⚠️ ใกล้ถึงยอดสั่งซื้อ (+20%)</option>
+                            <option value="NORMAL">✅ สถานะปกติ</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-center gap-1.5 text-xs">
+                        <button onclick="toggleStockCategories(true)" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-xl border border-gray-300 font-medium transition">
+                            ➕ ขยายทั้งหมด
+                        </button>
+                        <button onclick="toggleStockCategories(false)" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-xl border border-gray-300 font-medium transition">
+                            ➖ พับทั้งหมด
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto border border-gray-200 rounded-xl">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs font-semibold uppercase">
+                        <tr id="stockTableHeader">
+                            <!-- จะอัปเดตแบบไดนามิกเมื่อเข้าโหมดลบ -->
+                        </tr>
+                    </thead>
+                    <tbody id="quickStockTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB Transaction Logs -->
+        <div id="tabView-log" class="hidden bg-white p-6 rounded-b-2xl shadow-sm border border-t-0 border-gray-200 space-y-6">
+            <div class="border-b border-gray-100 pb-4">
+                <h2 class="text-xl font-bold text-gray-800">ประวัติความเคลื่อนไหวการเบิก-รับ (Transaction Logs)</h2>
+                <p class="text-xs text-gray-400 mt-1">แสดงประวัติการเบิกออกและรับเข้าสินค้าประจำวัน เรียงจากล่าสุดไปเก่าสุด</p>
+            </div>
+
+            <div class="overflow-x-auto border border-gray-200 rounded-xl">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs font-semibold uppercase">
+                        <tr>
+                            <th class="p-4">วัน-เวลา</th>
+                            <th class="p-4">Mat.No.</th>
+                            <th class="p-4">รายการสินค้า</th>
+                            <th class="p-4 text-center">ประเภทรายการ</th>
+                            <th class="p-4 text-right">จำนวน</th>
+                            <th class="p-4">ผู้ทำรายการ/แผนก</th>
+                            <th class="p-4">หมายเหตุ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modals Section -->
+    <div id="deleteAuditModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="flex items-center gap-3 text-red-600 border-b pb-3">
+                <div class="bg-red-100 p-2 rounded-full">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800">ยืนยันการลบข้อมูลรอบตรวจนับ</h3>
+            </div>
+            
+            <p class="text-sm text-gray-600">
+                คุณต้องการลบข้อมูลรอบการตรวจนับประจำวันที่ <span id="deleteAuditDateText" class="font-bold text-red-600"></span> ใช่หรือไม่? 
+            </p>
+            <p class="text-xs text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                ⚠️ คำเตือน: ข้อมูลยอดนับจริงในรอบนี้จะถูกลบออกจาก Matrix และคำนวณยอดคงเหลือใหม่โดยทันที
+            </p>
+
+            <div class="flex justify-end gap-3 pt-2">
+                <button onclick="closeDeleteAuditModal()" class="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50">ยกเลิก</button>
+                <button onclick="confirmDeleteAudit()" class="px-5 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 shadow-sm">ยืนยันลบข้อมูล</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="userModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-gray-800">👤 จัดการรายชื่อผู้ทำรายการ/ผู้เบิก</h3>
+                <button onclick="closeUserModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            
+            <form onsubmit="handleAddUser(event)" class="flex gap-2">
+                <input type="text" id="newUserInput" required placeholder="กรอกชื่อผู้เบิกหรือแผนกใหม่..." class="flex-1 border border-gray-300 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                    + เพิ่มรายชื่อ
+                </button>
+            </form>
+
+            <div class="text-xs text-gray-500 font-semibold">รายชื่อผู้ทำรายการทั้งหมด:</div>
+            
+            <div id="userListContainer" class="max-h-60 overflow-y-auto space-y-2 pr-1"></div>
+
+            <div class="flex justify-end pt-2 border-t border-gray-100">
+                <button onclick="closeUserModal()" class="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="auditUserModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-purple-900">📋 จัดการรายชื่อผู้ตรวจนับ / ทีมตรวจนับ</h3>
+                <button onclick="closeAuditUserModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            
+            <form onsubmit="handleAddAuditUser(event)" class="flex gap-2">
+                <input type="text" id="newAuditUserInput" required placeholder="กรอกชื่อผู้ตรวจนับหรือทีมตรวจนับ..." class="flex-1 border border-purple-300 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-purple-500">
+                <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                    + เพิ่มรายชื่อ
+                </button>
+            </form>
+
+            <div class="text-xs text-purple-700 font-semibold">รายชื่อผู้ตรวจนับทั้งหมด:</div>
+            
+            <div id="auditUserListContainer" class="max-h-60 overflow-y-auto space-y-2 pr-1"></div>
+
+            <div class="flex justify-end pt-2 border-t border-gray-100">
+                <button onclick="closeAuditUserModal()" class="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="categoryModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-gray-800">📁 จัดการหมวดหมู่สินค้า</h3>
+                <button onclick="closeCategoryModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            
+            <form onsubmit="handleAddCategory(event)" class="flex gap-2">
+                <input type="text" id="newCatInput" required placeholder="กรอกชื่อหมวดหมู่ใหม่..." class="flex-1 border border-gray-300 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                    + เพิ่มหมวดหมู่
+                </button>
+            </form>
+
+            <div class="text-xs text-gray-500 font-semibold">รายการหมวดหมู่ทั้งหมด:</div>
+            
+            <div id="categoryListContainer" class="max-h-60 overflow-y-auto space-y-2 pr-1"></div>
+
+            <div class="flex justify-end pt-2 border-t border-gray-100">
+                <button onclick="closeCategoryModal()" class="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="safetyModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <h3 class="text-lg font-bold text-gray-800">แก้ไขค่า Safety Stock</h3>
+            <p id="modalItemName" class="text-sm text-gray-600 font-medium"></p>
+            
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">จำนวน Safety Stock ใหม่</label>
+                <input type="number" id="modalSafetyInput" min="0" class="w-full border border-gray-300 rounded-xl p-3 text-base outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-400 mt-1">* หากตั้งเป็น 0 ระบบจะปลดล็อคการเฝ้าระวังอัตโนมัติ</p>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-2">
+                <button onclick="closeSafetyModal()" class="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50">ยกเลิก</button>
+                <button onclick="saveSafetyModal()" class="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 shadow-sm">บันทึกข้อมูล</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Section -->
+    <script>
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnAYb3H01_tIJSsmNq6SsxEgWMSU3VqerORBPuuANDO-IGpqvL-meb1nxPfAyt3cFG/exec';
+
+        let categories = ['ทั่วไป'];
+        let users = ['แผนกคลังสินค้า', 'ช่างซ่อมบำรุง', 'ทีมผลิต'];
+        let auditUsers = ['ผู้ตรวจนับ A', 'ผู้ตรวจนับ B', 'ทีมตรวจนับคลังสินค้า'];
+        let products = [];
+        let auditDates = [];
+        let auditRecords = {}; 
+        let transactions = [];
+        let collapsedCategories = {};
+
+        let activeEditingId = null;
+        let dateToDelete = null;
+
+        // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
+        let isDeleteMode = false;
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (!overlay) return;
+            if (show) {
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
+            } else {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }
+        }
+
+        function updateKPIs() {
+            document.getElementById('kpiTotalItems').textContent = products.length;
+            
+            let needOrder = 0;
+            let nearSafety = 0;
+            products.forEach(p => {
+                const s = p.safetyStock || 0;
+                if (s > 0) {
+                    if (p.currentQty <= s) needOrder++;
+                    else if (p.currentQty <= s * 1.2) nearSafety++;
+                }
+            });
+
+            document.getElementById('kpiNeedOrder').textContent = needOrder;
+            document.getElementById('kpiNearSafety').textContent = nearSafety;
+            document.getElementById('kpiAuditRounds').textContent = auditDates.length;
+        }
+
+        function renderApp() {
+            renderMatrixTable();
+            renderQuickStockTable();
+            renderTransactionLogs();
+            renderFormItems();
+            renderNewAuditForm();
+            updateKPIs();
+        }
+
+        function switchTab(tabId) {
+            const tabs = ['master', 'matrix', 'trans', 'audit', 'stock', 'log'];
+            tabs.forEach(t => {
+                const view = document.getElementById(`tabView-${t}`);
+                const btn = document.getElementById(`tabBtn-${t}`);
+                if (view && btn) {
+                    if (t === tabId) {
+                        view.classList.remove('hidden');
+                        btn.className = "px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border-t border-x border-blue-600 border-b-0 text-blue-700 bg-white shadow-sm z-10 -mb-0.5";
+                    } else {
+                        view.classList.add('hidden');
+                        btn.className = "px-4 py-2.5 font-semibold text-xs md:text-sm rounded-t-xl transition border border-gray-300 text-gray-700 bg-gray-200/70 hover:bg-blue-100 hover:text-blue-700";
+                    }
+                }
+            });
+            renderApp();
+        }
+
+        function setFilter(status) {
+            document.getElementById('filterStatus').value = status;
+            renderApp();
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('transDate').value = today;
+            document.getElementById('newAuditDate').value = today;
+
+            await loadDataFromGoogleSheets();
+        });
+
+        function handleEnterNav(e, selector) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const inputs = Array.from(document.querySelectorAll(selector)).filter(el => !el.disabled);
+                const currentIndex = inputs.indexOf(e.target);
+                if (currentIndex !== -1 && currentIndex + 1 < inputs.length) {
+                    inputs[currentIndex + 1].focus();
+                    inputs[currentIndex + 1].select();
+                }
+            }
+        }
+
+        function calculateInitialQty(productId) {
+            const product = products.find(p => p.id === productId);
+            if (!product) return 0;
+
+            let qty = product.initialQty !== undefined ? product.initialQty : product.currentQty;
+            const firstAuditDate = auditDates.length > 0 ? auditDates[0] : null;
+
+            transactions.forEach(t => {
+                if (t.productId === productId) {
+                    const transDateOnly = t.timestamp.split(' ')[0];
+                    if (!firstAuditDate || transDateOnly <= firstAuditDate) {
+                        if (t.type === 'IN') {
+                            qty += t.qty;
+                        } else if (t.type === 'OUT') {
+                            qty -= t.qty;
+                        }
+                    }
+                }
+            });
+
+            return qty;
+        }
+
+        async function saveDataToGoogleSheets() {
+            showLoading(true);
+            const appData = {
+                categories: categories,
+                users: users,
+                auditUsers: auditUsers,
+                products: products,
+                auditDates: auditDates,
+                auditRecords: auditRecords,
+                transactions: transactions
+            };
+
+            try {
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(appData)
+                });
+                console.log('ส่งคำขอบันทึกข้อมูลไปยัง Google Sheets เรียบร้อย');
+            } catch (err) {
+                console.error('เกิดข้อผิดพลาดในการบันทึกข้อมูลไปยัง Google Sheets:', err);
+                alert('เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function loadDataFromGoogleSheets() {
+            showLoading(true);
+            try {
+                const response = await fetch(GOOGLE_SCRIPT_URL + '?t=' + new Date().getTime());
+                const remoteData = await response.json();
+                
+                if (remoteData && typeof remoteData === 'object') {
+                    if (Array.isArray(remoteData.categories) && remoteData.categories.length > 0) categories = remoteData.categories;
+                    if (Array.isArray(remoteData.users) && remoteData.users.length > 0) users = remoteData.users;
+                    if (Array.isArray(remoteData.auditUsers) && remoteData.auditUsers.length > 0) auditUsers = remoteData.auditUsers;
+                    if (Array.isArray(remoteData.products)) products = remoteData.products;
+                    if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
+                    if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
+                    if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
+                }
+
+                renderCategoryOptions();
+                renderUserOptions();
+                renderAuditUserOptions();
+                renderApp();
+            } catch (err) {
+                console.error('ไม่สามารถดึงข้อมูลจาก Google Sheets ได้:', err);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        /* --- ฟังก์ชันสลับโหมดการลบ --- */
+        function toggleDeleteMode(enable) {
+            isDeleteMode = enable;
+            const btnStart = document.getElementById('btnStartDeleteMode');
+            const activeBar = document.getElementById('deleteActiveBar');
+
+            if (isDeleteMode) {
+                if (btnStart) btnStart.classList.add('hidden');
+                if (activeBar) activeBar.classList.remove('hidden');
+            } else {
+                if (btnStart) btnStart.classList.remove('hidden');
+                if (activeBar) activeBar.classList.add('hidden');
+            }
+
+            renderQuickStockTable();
+        }
+
+        /* --- ฟังก์ชันเลือกทั้งหมด / ยกเลิกทั้งหมด ในโหมดลบ --- */
+        function toggleSelectAllDelete(checked) {
+            const checkboxes = document.querySelectorAll('.delete-product-cb');
+            checkboxes.forEach(cb => cb.checked = checked);
+        }
+
+        /* --- ฟังก์ชันยืนยันลบหลายรายการ --- */
+        async function deleteSelectedProducts() {
+            const checkboxes = document.querySelectorAll('.delete-product-cb:checked');
+            if (checkboxes.length === 0) {
+                return alert('กรุณาเลือกรายการสินค้าที่ต้องการลบอย่างน้อย 1 รายการ');
+            }
+
+            const idsToDelete = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (confirm(`คุณต้องการลบรายการสินค้าที่เลือกทั้งหมด ${idsToDelete.length} รายการ ออกจากระบบใช่หรือไม่?\n\n*หมายเหตุ: ข้อมูลการเบิก-รับ และผลตรวจนับของสินค้าเหล่านี้จะถูกลบออกด้วย`)) {
+                
+                // ลบรายการออกจาก products
+                products = products.filter(p => !idsToDelete.includes(p.id));
+
+                // ลบออกจาก auditRecords
+                Object.keys(auditRecords).forEach(date => {
+                    if (auditRecords[date] && auditRecords[date].items) {
+                        idsToDelete.forEach(id => {
+                            delete auditRecords[date].items[id];
+                        });
+                    }
+                });
+
+                await saveDataToGoogleSheets();
+                toggleDeleteMode(false); // ปิดโหมดลบเมื่อลบเสร็จ
+                renderApp();
+                alert(`ลบรายการสินค้าเรียบร้อยแล้ว ${idsToDelete.length} รายการ`);
+            }
+        }
+
+        /* --- ฟังก์ชันลบสินค้าทีละรายการ --- */
+        async function deleteSingleProduct(productId) {
+            const product = products.find(p => p.id === productId);
+            if (!product) return;
+
+            if (confirm(`คุณต้องการลบรายการสินค้า "${product.name}" (รหัส: ${product.id}) ออกจากระบบใช่หรือไม่?\n\n*หมายเหตุ: ข้อมูลรายการเบิก-รับ และผลตรวจนับของสินค้านี้จะถูกลบออกด้วย`)) {
+                products = products.filter(p => p.id !== productId);
+
+                Object.keys(auditRecords).forEach(date => {
+                    if (auditRecords[date] && auditRecords[date].items) {
+                        delete auditRecords[date].items[productId];
+                    }
+                });
+
+                await saveDataToGoogleSheets();
+                renderApp();
+                alert(`ลบรายการสินค้า ${product.name} เรียบร้อยแล้ว`);
+            }
+        }
+
+        async function handleAddSingleProduct(e) {
+            e.preventDefault();
+            const id = document.getElementById('pmId').value.trim();
+            const name = document.getElementById('pmName').value.trim();
+            const category = document.getElementById('pmCategory').value;
+            const qty = parseFloat(document.getElementById('pmQty').value) || 0;
+            const safety = parseFloat(document.getElementById('pmSafety').value) || 0;
+            const unit = document.getElementById('pmUnit').value.trim();
+
+            if (!id || !name) return alert('กรุณากรอกรหัสและชื่อสินค้า');
+
+            const existingIndex = products.findIndex(p => p.id === id);
+            if (existingIndex >= 0) {
+                if (!confirm(`พบรหัสสินค้า ${id} ในระบบแล้ว คุณต้องการอัปเดตข้อมูลสินค้าเดิมหรือไม่?`)) return;
+                products[existingIndex].name = name;
+                products[existingIndex].category = category;
+                products[existingIndex].currentQty = qty;
+                products[existingIndex].initialQty = qty;
+                products[existingIndex].safetyStock = safety;
+                products[existingIndex].unit = unit;
+            } else {
+                products.push({
+                    id: id,
+                    name: name,
+                    category: category,
+                    currentQty: qty,
+                    initialQty: qty,
+                    unit: unit,
+                    safetyStock: safety
+                });
+            }
+
+            await saveDataToGoogleSheets();
+            alert('บันทึกข้อมูลสินค้าเรียบร้อยแล้ว!');
+            document.getElementById('addProductForm').reset();
+            renderApp();
+        }
+
+        function handleExcelUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                    let addedCount = 0;
+                    let updatedCount = 0;
+
+                    json.forEach(row => {
+                        const keys = Object.keys(row);
+                        const findValue = (possibleNames) => {
+                            const foundKey = keys.find(k => possibleNames.includes(k.trim().toLowerCase()));
+                            return foundKey ? row[foundKey] : undefined;
+                        };
+
+                        const id = String(findValue(['mat.no.', 'mat.no', 'รหัสสินค้า', 'id', 'code']) || '').trim();
+                        const name = String(findValue(['ชื่อสินค้า', 'รายการ', 'name']) || '').trim();
+                        const cat = String(findValue(['หมวดหมู่', 'category']) || 'ทั่วไป').trim();
+                        const rawQty = findValue(['จำนวน', 'คงเหลือ', 'qty', 'balance']);
+                        const qty = parseFloat(rawQty) || 0;
+                        const rawSafety = findValue(['safety stock', 'safetystock', 'safety', 'ขั้นต่ำ']);
+                        const parsedSafety = parseFloat(rawSafety);
+                        const safety = isNaN(parsedSafety) ? 0 : parsedSafety;
+                        const unit = String(findValue(['หน่วย', 'หน่วยนับ', 'unit']) || 'ชิ้น').trim();
+
+                        if (id && name) {
+                            if (!categories.includes(cat)) {
+                                categories.push(cat);
+                            }
+
+                            const existingIndex = products.findIndex(p => p.id === id);
+                            if (existingIndex >= 0) {
+                                products[existingIndex].name = name;
+                                products[existingIndex].category = cat;
+                                products[existingIndex].currentQty = qty;
+                                products[existingIndex].initialQty = qty;
+                                products[existingIndex].safetyStock = safety;
+                                products[existingIndex].unit = unit;
+                                updatedCount++;
+                            } else {
+                                products.push({
+                                    id: id,
+                                    name: name,
+                                    category: cat,
+                                    currentQty: qty,
+                                    initialQty: qty,
+                                    unit: unit,
+                                    safetyStock: safety
+                                });
+                                addedCount++;
+                            }
+                        }
+                    });
+
+                    if (addedCount === 0 && updatedCount === 0) {
+                        alert('ไม่พบรายการสินค้าที่ถูกต้องในไฟล์ Excel กรุณาเช็กชื่อหัวคอลัมน์');
+                        return;
+                    }
+
+                    await saveDataToGoogleSheets();
+                    renderCategoryOptions();
+                    renderApp();
+                    alert(`อัปโหลดไฟล์สำเร็จ! เพิ่มสินค้าใหม่ ${addedCount} รายการ และอัปเดตสินค้าเดิม ${updatedCount} รายการ`);
+                } catch (err) {
+                    alert('เกิดข้อผิดพลาดในการอ่านไฟล์ Excel กรุณาตรวจสอบรูปแบบไฟล์อีกครั้ง');
+                    console.error(err);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            e.target.value = '';
+        }
+
+        function openCategoryModal() {
+            renderCategoryModalList();
+            document.getElementById('categoryModal').classList.remove('hidden');
+            document.getElementById('categoryModal').classList.add('flex');
+        }
+
+        function closeCategoryModal() {
+            document.getElementById('categoryModal').classList.add('hidden');
+            document.getElementById('categoryModal').classList.remove('flex');
+        }
+
+        async function handleAddCategory(e) {
+            e.preventDefault();
+            const input = document.getElementById('newCatInput');
+            const val = input.value.trim();
+            if (val && !categories.includes(val)) {
+                categories.push(val);
+                await saveDataToGoogleSheets();
+                renderCategoryOptions();
+                renderCategoryModalList();
+                renderApp();
+                input.value = '';
+            }
+        }
+
+        async function deleteCategory(catName) {
+            if (categories.length <= 1) return alert('ต้องมีหมวดอยู่อย่างน้อย 1 หมวดหมู่');
+            if (confirm(`คุณต้องการลบหมวดหมู่ "${catName}" ใช่หรือไม่?`)) {
+                categories = categories.filter(c => c !== catName);
+                products.forEach(p => {
+                    if (p.category === catName) p.category = categories[0];
+                });
+                await saveDataToGoogleSheets();
+                renderCategoryOptions();
+                renderCategoryModalList();
+                renderApp();
+            }
+        }
+
+        function renderCategoryOptions() {
+            const pmCat = document.getElementById('pmCategory');
+            const selectCat = document.getElementById('selectCategory');
+            const selectAuditCat = document.getElementById('selectAuditCategory');
+            const matrixCat = document.getElementById('matrixCategoryFilter');
+            const stockCat = document.getElementById('stockCategoryFilter');
+            
+            const currentMatrixVal = matrixCat ? matrixCat.value : 'ALL';
+            const currentAuditCatVal = selectAuditCat ? selectAuditCat.value : 'ALL';
+            const currentStockCatVal = stockCat ? stockCat.value : 'ALL';
+            
+            if (pmCat) pmCat.innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            if (selectCat) selectCat.innerHTML = `<option value="ALL">-- รวมทุกหมวดหมู่ --</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            
+            if (selectAuditCat) {
+                selectAuditCat.innerHTML = `<option value="ALL">-- รวมทุกหมวดหมู่ --</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                if (categories.includes(currentAuditCatVal) || currentAuditCatVal === 'ALL') {
+                    selectAuditCat.value = currentAuditCatVal;
+                }
+            }
+
+            if (matrixCat) {
+                matrixCat.innerHTML = `<option value="ALL">-- แสดงทุกหมวดหมู่ --</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                if (categories.includes(currentMatrixVal) || currentMatrixVal === 'ALL') {
+                    matrixCat.value = currentMatrixVal;
+                }
+            }
+
+            if (stockCat) {
+                stockCat.innerHTML = `<option value="ALL">-- รวมทุกหมวดหมู่ --</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                if (categories.includes(currentStockCatVal) || currentStockCatVal === 'ALL') {
+                    stockCat.value = currentStockCatVal;
+                }
+            }
+        }
+
+        function renderCategoryModalList() {
+            const container = document.getElementById('categoryListContainer');
+            if (container) {
+                container.innerHTML = categories.map(c => `
+                    <div class="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+                        <span class="text-sm font-medium text-gray-700">${c}</span>
+                        <button onclick="deleteCategory('${c}')" class="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1 rounded hover:bg-red-50">ลบ</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function openUserModal() {
+            renderUserModalList();
+            document.getElementById('userModal').classList.remove('hidden');
+            document.getElementById('userModal').classList.add('flex');
+        }
+        function closeUserModal() {
+            document.getElementById('userModal').classList.add('hidden');
+            document.getElementById('userModal').classList.remove('flex');
+        }
+        async function handleAddUser(e) {
+            e.preventDefault();
+            const val = document.getElementById('newUserInput').value.trim();
+            if (val && !users.includes(val)) {
+                users.push(val);
+                await saveDataToGoogleSheets();
+                renderUserOptions();
+                renderUserModalList();
+                document.getElementById('newUserInput').value = '';
+            }
+        }
+        async function deleteUser(name) {
+            if (users.length <= 1) return alert('ต้องมีรายชื่ออย่างน้อย 1 รายชื่อ');
+            users = users.filter(u => u !== name);
+            await saveDataToGoogleSheets();
+            renderUserOptions();
+            renderUserModalList();
+        }
+        function renderUserOptions() {
+            const uSelect = document.getElementById('formUserSelect');
+            if (uSelect) uSelect.innerHTML = users.map(u => `<option value="${u}">${u}</option>`).join('');
+        }
+        function renderUserModalList() {
+            const container = document.getElementById('userListContainer');
+            if (container) {
+                container.innerHTML = users.map(u => `
+                    <div class="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+                        <span class="text-sm font-medium text-gray-700">${u}</span>
+                        <button onclick="deleteUser('${u}')" class="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1 rounded hover:bg-red-50">ลบ</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function openAuditUserModal() {
+            renderAuditUserModalList();
+            document.getElementById('auditUserModal').classList.remove('hidden');
+            document.getElementById('auditUserModal').classList.add('flex');
+        }
+        function closeAuditUserModal() {
+            document.getElementById('auditUserModal').classList.add('hidden');
+            document.getElementById('auditUserModal').classList.remove('flex');
+        }
+        async function handleAddAuditUser(e) {
+            e.preventDefault();
+            const val = document.getElementById('newAuditUserInput').value.trim();
+            if (val && !auditUsers.includes(val)) {
+                auditUsers.push(val);
+                await saveDataToGoogleSheets();
+                renderAuditUserOptions();
+                renderAuditUserModalList();
+                document.getElementById('newAuditUserInput').value = '';
+            }
+        }
+        async function deleteAuditUser(name) {
+            if (auditUsers.length <= 1) return alert('ต้องมีรายชื่ออย่างน้อย 1 รายชื่อ');
+            auditUsers = auditUsers.filter(u => u !== name);
+            await saveDataToGoogleSheets();
+            renderAuditUserOptions();
+            renderAuditUserModalList();
+        }
+        function renderAuditUserOptions() {
+            const aSelect = document.getElementById('newAuditUserSelect');
+            if (aSelect) aSelect.innerHTML = auditUsers.map(u => `<option value="${u}">${u}</option>`).join('');
+        }
+        function renderAuditUserModalList() {
+            const container = document.getElementById('auditUserListContainer');
+            if (container) {
+                container.innerHTML = auditUsers.map(u => `
+                    <div class="flex justify-between items-center bg-purple-50/50 p-2.5 rounded-xl border border-purple-100">
+                        <span class="text-sm font-medium text-purple-900">${u}</span>
+                        <button onclick="deleteAuditUser('${u}')" class="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1 rounded hover:bg-red-50">ลบ</button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function openDeleteAuditModal(date) {
+            dateToDelete = date;
+            document.getElementById('deleteAuditDateText').textContent = date;
+            document.getElementById('deleteAuditModal').classList.remove('hidden');
+            document.getElementById('deleteAuditModal').classList.add('flex');
+        }
+
+        function closeDeleteAuditModal() {
+            dateToDelete = null;
+            document.getElementById('deleteAuditModal').classList.add('hidden');
+            document.getElementById('deleteAuditModal').classList.remove('flex');
+        }
+
+        async function confirmDeleteAudit() {
+            if (!dateToDelete) return;
+
+            auditDates = auditDates.filter(d => d !== dateToDelete);
+            delete auditRecords[dateToDelete];
+
+            products.forEach(p => {
+                let latestQty = calculateInitialQty(p.id);
+                
+                for (let i = auditDates.length - 1; i >= 0; i--) {
+                    const d = auditDates[i];
+                    if (auditRecords[d] && auditRecords[d].items && auditRecords[d].items[p.id] !== undefined) {
+                        latestQty = auditRecords[d].items[p.id];
+                        break;
+                    }
+                }
+
+                const lastAuditDate = auditDates.length > 0 ? auditDates[auditDates.length - 1] : null;
+                transactions.forEach(t => {
+                    if (t.productId === p.id) {
+                        const transDateOnly = t.timestamp.split(' ')[0];
+                        if (lastAuditDate && transDateOnly > lastAuditDate) {
+                            if (t.type === 'IN') latestQty += t.qty;
+                            else if (t.type === 'OUT') latestQty -= t.qty;
+                        }
+                    }
+                });
+
+                p.currentQty = latestQty;
+            });
+
+            await saveDataToGoogleSheets();
+            closeDeleteAuditModal();
+            renderApp();
+        }
+
+        function toggleCategoryCollapse(catName) {
+            collapsedCategories[catName] = !collapsedCategories[catName];
+            renderMatrixTable();
+        }
+
+        function toggleAllCategories(expand) {
+            categories.forEach(c => {
+                collapsedCategories[c] = !expand;
+            });
+            renderMatrixTable();
+        }
+
+        function toggleStockCategories(expand) {
+            categories.forEach(c => {
+                collapsedCategories['stock_' + c] = !expand;
+            });
+            renderQuickStockTable();
+        }
+
+        function renderMatrixTable() {
+            const head = document.getElementById('matrixHead');
+            const body = document.getElementById('matrixBody');
+            if (!head || !body) return;
+
+            const filterCat = document.getElementById('matrixCategoryFilter') ? document.getElementById('matrixCategoryFilter').value : 'ALL';
+
+            if (products.length === 0) {
+                head.innerHTML = '';
+                body.innerHTML = `<tr><td class="p-8 text-center text-gray-400" colspan="100%">ไม่มีข้อมูลสินค้า กรุณาเพิ่มสินค้าที่เมนู Product Master</td></tr>`;
+                return;
+            }
+
+            let headHTML = `
+                <tr class="bg-gray-100 text-gray-700 font-semibold border-b border-gray-300">
+                    <th class="p-3 border-r sticky left-0 bg-gray-100 z-30 min-w-[80px]">Mat.No.</th>
+                    <th class="p-3 border-r sticky left-[80px] bg-gray-100 z-30 min-w-[180px]">รายการสินค้า</th>
+                    <th class="p-3 border-r border-gray-300 text-center sticky left-[260px] bg-gray-100 z-30 min-w-[70px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">หน่วย</th>
+                    <th class="p-3 border-r text-center bg-blue-50 text-blue-900 min-w-[90px]">ยอดยกมา</th>
+            `;
+
+            auditDates.forEach(date => {
+                const auditor = auditRecords[date]?.user ? `<br><span class="text-[10px] text-gray-500 font-normal">(${auditRecords[date].user})</span>` : '';
+                headHTML += `
+                    <th class="p-2 border-r text-center bg-purple-100 text-purple-900 min-w-[100px] relative group" title="ตรวจนับจริง ${date}">
+                        <div class="flex items-center justify-center gap-1">
+                            <span>นับจริง<br>${date}${auditor}</span>
+                            <button onclick="openDeleteAuditModal('${date}')" class="text-red-500 hover:text-red-700 hover:bg-red-100 p-1 rounded-lg transition" title="ลบข้อมูลการตรวจนับรอบวันที่ ${date}">
+                                🗑️
+                            </button>
+                        </div>
+                    </th>
+                    <th class="p-2 border-r text-center bg-amber-100 text-amber-900 min-w-[80px]" title="ผลต่าง Diff ${date}">Diff<br>${date}</th>
+                `;
+            });
+
+            headHTML += `<th class="p-3 text-center bg-emerald-100 text-emerald-900 min-w-[100px]">คงเหลือปัจจุบัน</th></tr>`;
+            head.innerHTML = headHTML;
+
+            const grouped = {};
+            categories.forEach(c => grouped[c] = []);
+            products.forEach(p => {
+                const cat = p.category || 'ทั่วไป';
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(p);
+            });
+
+            let bodyHTML = '';
+            const totalCols = 4 + (auditDates.length * 2) + 1;
+            const displayCategories = (filterCat === 'ALL') ? categories : categories.filter(c => c === filterCat);
+
+            displayCategories.forEach(cat => {
+                const catItems = grouped[cat] || [];
+                if (catItems.length === 0) return;
+
+                const isCollapsed = !!collapsedCategories[cat];
+                const icon = isCollapsed ? '➕' : '➖';
+
+                bodyHTML += `
+                    <tr class="bg-slate-200/90 hover:bg-slate-200 cursor-pointer font-bold text-slate-800 transition select-none" onclick="toggleCategoryCollapse('${cat}')">
+                        <td class="p-2.5 px-4 border-b border-gray-300 sticky left-0 z-10 bg-slate-200" style="min-width: 80px;">
+                            <span class="text-xs">${icon}</span>
+                        </td>
+                        <td colspan="${totalCols - 1}" class="p-2.5 px-2 border-b border-gray-300">
+                            <div class="flex items-center gap-2">
+                                <span>📁 หมวดหมู่: ${cat}</span>
+                                <span class="text-xs font-normal text-gray-500">(${catItems.length} รายการ)</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+
+                if (!isCollapsed) {
+                    catItems.forEach((p, idx) => {
+                        const bgClass = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                        
+                        bodyHTML += `<tr class="${bgClass} hover:bg-blue-50/30 transition">`;
+                        bodyHTML += `<td class="p-2.5 border-r font-medium sticky left-0 ${bgClass} z-10">${p.id}</td>`;
+                        bodyHTML += `<td class="p-2.5 border-r font-medium sticky left-[80px] ${bgClass} z-10">${p.name}</td>`;
+                        bodyHTML += `<td class="p-2.5 border-r border-gray-300 text-center text-gray-500 sticky left-[260px] ${bgClass} z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">${p.unit}</td>`;
+
+                        const initialStock = calculateInitialQty(p.id);
+                        bodyHTML += `<td class="p-2.5 border-r text-center font-semibold text-blue-800 bg-blue-50/30">${initialStock}</td>`;
+
+                        let previousCount = initialStock;
+
+                        auditDates.forEach((date) => {
+                            const rec = auditRecords[date];
+                            const actualCount = rec && rec.items ? rec.items[p.id] : undefined;
+                            
+                            if (actualCount !== undefined) {
+                                const diff = actualCount - previousCount;
+                                
+                                let diffClass = "text-gray-400";
+                                let diffText = "0";
+
+                                if (diff > 0) {
+                                    diffClass = "bg-green-100 text-green-800 font-bold";
+                                    diffText = `+${diff}`;
+                                } else if (diff < 0) {
+                                    diffClass = "bg-rose-100 text-red-700 font-bold";
+                                    diffText = `${diff}`;
+                                }
+
+                                bodyHTML += `<td class="p-2.5 border-r text-center font-medium">${actualCount}</td>`;
+                                bodyHTML += `<td class="p-2.5 border-r text-center ${diffClass}">${diffText}</td>`;
+
+                                previousCount = actualCount;
+                            } else {
+                                bodyHTML += `<td class="p-2.5 border-r text-center text-gray-300">-</td>`;
+                                bodyHTML += `<td class="p-2.5 border-r text-center text-gray-300">-</td>`;
+                            }
+                        });
+
+                        bodyHTML += `<td class="p-2.5 text-center font-bold text-emerald-700 bg-emerald-50/30">${p.currentQty}</td>`;
+                        bodyHTML += `</tr>`;
+                    });
+                }
+            });
+
+            if (bodyHTML === '') {
+                bodyHTML = `<tr><td class="p-8 text-center text-gray-400" colspan="100%">ไม่พบรายการสินค้าในหมวดหมู่ที่เลือก</td></tr>`;
+            }
+
+            body.innerHTML = bodyHTML;
+        }
+
+        function renderFormItems() {
+            const catSelect = document.getElementById('selectCategory');
+            const tbody = document.getElementById('formItemsTableBody');
+            if (!catSelect || !tbody) return;
+
+            const cat = catSelect.value;
+            const filtered = (cat === 'ALL') ? products : products.filter(p => p.category === cat);
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="6">ไม่พบรายการสินค้าในหมวดหมู่นี้</td></tr>`;
+                return;
+            }
+
+            const transTypeElem = document.querySelector('input[name="transType"]:checked');
+            const isOut = transTypeElem ? transTypeElem.value === 'OUT' : true;
+
+            tbody.innerHTML = filtered.map(p => `
+                <tr class="hover:bg-gray-50 transition">
+                    <td class="p-3 text-center">
+                        <input type="checkbox" class="item-checkbox w-4 h-4 text-blue-600 rounded cursor-pointer" value="${p.id}" onchange="toggleItemInput('${p.id}')">
+                    </td>
+                    <td class="p-3 font-semibold text-gray-700">${p.id}</td>
+                    <td class="p-3 font-medium text-gray-800">${p.name} <span class="text-xs text-gray-400">(${p.category})</span></td>
+                    <td class="p-3 text-center font-semibold ${p.currentQty <= (p.safetyStock || 0) && p.safetyStock > 0 ? 'text-red-600' : 'text-gray-700'}">
+                        ${p.currentQty} ${p.unit}
+                    </td>
+                    <td class="p-3 text-center">
+                        <input type="number" id="qty-${p.id}" min="1" ${isOut ? `max="${p.currentQty}"` : ''} disabled placeholder="0" onkeydown="handleEnterNav(event, '.trans-qty-input')" class="trans-qty-input w-28 border border-gray-300 rounded-lg p-1.5 text-center text-sm disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </td>
+                    <td class="p-3">
+                        <input type="text" id="remark-${p.id}" disabled placeholder="ระบุหมายเหตุเฉพาะรายการ..." onkeydown="handleEnterNav(event, '.trans-remark-input')" class="trans-remark-input w-full border border-gray-300 rounded-lg p-1.5 text-sm disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function toggleItemInput(id) {
+            const checkbox = document.querySelector(`.item-checkbox[value="${id}"]`);
+            const qtyInput = document.getElementById(`qty-${id}`);
+            const remarkInput = document.getElementById(`remark-${id}`);
+            
+            if (checkbox && qtyInput) {
+                qtyInput.disabled = !checkbox.checked;
+                remarkInput.disabled = !checkbox.checked;
+                if (checkbox.checked) {
+                    qtyInput.focus();
+                } else {
+                    qtyInput.value = '';
+                    remarkInput.value = '';
+                }
+            }
+        }
+
+        function updateQtyLimits() {
+            renderFormItems();
+        }
+
+        async function handleMultiTransaction(e) {
+            e.preventDefault();
+            const transType = document.querySelector('input[name="transType"]:checked').value;
+            const date = document.getElementById('transDate').value;
+            const user = document.getElementById('formUserSelect').value;
+            const mainRemark = document.getElementById('transRemark').value.trim();
+
+            const checkboxes = document.querySelectorAll('.item-checkbox:checked');
+            if (checkboxes.length === 0) return alert('กรุณาเลือกรายการสินค้าอย่างน้อย 1 รายการ');
+
+            let processedCount = 0;
+
+            for (let cb of checkboxes) {
+                const id = cb.value;
+                const qtyInput = document.getElementById(`qty-${id}`);
+                const qty = parseFloat(qtyInput.value);
+
+                if (!qty || qty <= 0) {
+                    alert(`กรุณากรอกจำนวนที่ถูกต้องสำหรับสินค้า รหัส ${id}`);
+                    return;
+                }
+
+                const product = products.find(p => p.id === id);
+                if (!product) continue;
+
+                if (transType === 'OUT' && qty > product.currentQty) {
+                    alert(`สินค้า ${product.name} มีจำนวนคงเหลือไม่พอสำหรับการเบิก (${product.currentQty} ${product.unit})`);
+                    return;
+                }
+            }
+
+            checkboxes.forEach(cb => {
+                const id = cb.value;
+                const qtyInput = document.getElementById(`qty-${id}`);
+                const remarkInput = document.getElementById(`remark-${id}`);
+                const qty = parseFloat(qtyInput.value);
+                const itemRemark = remarkInput ? remarkInput.value.trim() : '';
+                
+                const finalRemark = itemRemark || mainRemark || '-';
+
+                const product = products.find(p => p.id === id);
+                if (transType === 'OUT') {
+                    product.currentQty -= qty;
+                } else {
+                    product.currentQty += qty;
+                }
+
+                transactions.unshift({
+                    timestamp: `${date} ${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`,
+                    productId: product.id,
+                    productName: product.name,
+                    type: transType,
+                    qty: qty,
+                    unit: product.unit,
+                    user: user,
+                    remark: finalRemark
+                });
+
+                processedCount++;
+            });
+
+            await saveDataToGoogleSheets();
+            alert(`บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} สำเร็จแล้ว ${processedCount} รายการ!`);
+            document.getElementById('transRemark').value = '';
+            renderApp();
+        }
+
+        function renderNewAuditForm() {
+            const tbody = document.getElementById('newAuditTableBody');
+            if (!tbody) return;
+
+            const cat = document.getElementById('selectAuditCategory') ? document.getElementById('selectAuditCategory').value : 'ALL';
+            const filtered = (cat === 'ALL') ? products : products.filter(p => p.category === cat);
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="5">ไม่พบรายการสินค้าในหมวดหมู่นี้</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(p => `
+                <tr class="hover:bg-gray-50 transition">
+                    <td class="p-3 font-semibold text-purple-900">${p.id}</td>
+                    <td class="p-3 font-medium text-gray-800">${p.name} <span class="text-xs text-gray-400">(${p.category})</span></td>
+                    <td class="p-3 text-center text-gray-500">${p.unit}</td>
+                    <td class="p-3 text-center font-semibold text-gray-700">${p.currentQty}</td>
+                    <td class="p-3 text-center">
+                        <input type="number" data-audit-id="${p.id}" min="0" placeholder="${p.currentQty}" onkeydown="handleEnterNav(event, '.audit-qty-input')" class="audit-qty-input w-28 border border-purple-300 rounded-lg p-1.5 text-center text-sm focus:ring-2 focus:ring-purple-500 outline-none font-semibold text-purple-900">
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function handleSaveNewAudit(e) {
+            e.preventDefault();
+            const date = document.getElementById('newAuditDate').value;
+            const auditor = document.getElementById('newAuditUserSelect').value;
+
+            if (!date) return alert('กรุณาเลือกวันที่ตรวจนับ');
+
+            const inputs = document.querySelectorAll('.audit-qty-input');
+            const existingRecord = auditRecords[date] ? { ...auditRecords[date].items } : {};
+            const newItems = { ...existingRecord };
+
+            inputs.forEach(input => {
+                const id = input.getAttribute('data-audit-id');
+                const val = input.value.trim();
+                const prod = products.find(p => p.id === id);
+                if (val !== '') {
+                    newItems[id] = parseFloat(val);
+                } else if (prod && newItems[id] === undefined) {
+                    newItems[id] = prod.currentQty;
+                }
+            });
+
+            if (!auditDates.includes(date)) {
+                auditDates.push(date);
+            }
+
+            auditRecords[date] = {
+                user: auditor,
+                items: newItems
+            };
+
+            products.forEach(p => {
+                if (newItems[p.id] !== undefined) {
+                    p.currentQty = newItems[p.id];
+                }
+            });
+
+            await saveDataToGoogleSheets();
+            alert(`ลงบันทึกการตรวจนับประจำวันที่ ${date} เข้าสู่ระบบ Matrix เรียบร้อยแล้ว!`);
+            switchTab('matrix');
+        }
+
+        /* --- ปรับปรุงตารางสต๊อกคงเหลือ และรองรับการเลือกแสดง/ซ่อนปุ่มลบ --- */
+        function renderQuickStockTable() {
+            const tbody = document.getElementById('quickStockTableBody');
+            const thead = document.getElementById('stockTableHeader');
+            if (!tbody || !thead) return;
+
+            // Render Header
+            if (isDeleteMode) {
+                thead.innerHTML = `
+                    <th class="p-4 text-center w-12 bg-red-50">
+                        <input type="checkbox" onchange="toggleSelectAllDelete(this.checked)" class="w-4 h-4 text-red-600 rounded cursor-pointer" title="เลือกทั้งหมด">
+                    </th>
+                    <th class="p-4">Mat.No.</th>
+                    <th class="p-4">รายการสินค้า</th>
+                    <th class="p-4 text-center">Safety Stock</th>
+                    <th class="p-4 text-right">คงเหลือปัจจุบัน</th>
+                    <th class="p-4 text-center">สถานะ</th>
+                    <th class="p-4 text-center">จัดการ</th>
+                `;
+            } else {
+                thead.innerHTML = `
+                    <th class="p-4">Mat.No.</th>
+                    <th class="p-4">รายการสินค้า</th>
+                    <th class="p-4 text-center">Safety Stock</th>
+                    <th class="p-4 text-right">คงเหลือปัจจุบัน</th>
+                    <th class="p-4 text-center">สถานะ</th>
+                    <th class="p-4 text-center">จัดการ</th>
+                `;
+            }
+
+            const filterElem = document.getElementById('filterStatus');
+            const filter = filterElem ? filterElem.value : 'ALL';
+            const stockCatFilter = document.getElementById('stockCategoryFilter') ? document.getElementById('stockCategoryFilter').value : 'ALL';
+
+            let list = products.filter(p => {
+                const s = p.safetyStock || 0;
+                if (filter === 'NEED_ORDER') return s > 0 && p.currentQty <= s;
+                if (filter === 'NEAR_SAFETY') return s > 0 && p.currentQty > s && p.currentQty <= s * 1.2;
+                if (filter === 'NORMAL') return s === 0 || p.currentQty > s * 1.2;
+                return true;
+            });
+
+            const colSpanTotal = isDeleteMode ? 7 : 6;
+
+            if (list.length === 0) {
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="${colSpanTotal}">ไม่พบรายการสินค้าตามเงื่อนไขที่เลือก</td></tr>`;
+                return;
+            }
+
+            const grouped = {};
+            categories.forEach(c => grouped[c] = []);
+            list.forEach(p => {
+                const cat = p.category || 'ทั่วไป';
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(p);
+            });
+
+            let bodyHTML = '';
+            const displayCategories = (stockCatFilter === 'ALL') ? categories : categories.filter(c => c === stockCatFilter);
+
+            displayCategories.forEach(cat => {
+                const catItems = grouped[cat] || [];
+                if (catItems.length === 0) return;
+
+                const isCollapsed = !!collapsedCategories['stock_' + cat];
+                const icon = isCollapsed ? '➕' : '➖';
+
+                bodyHTML += `
+                    <tr class="bg-slate-100 hover:bg-slate-200 cursor-pointer font-bold text-slate-800 transition select-none" onclick="collapsedCategories['stock_${cat}'] = !collapsedCategories['stock_${cat}']; renderQuickStockTable();">
+                        <td colspan="${colSpanTotal}" class="p-3 px-4 border-b border-gray-200">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs">${icon}</span>
+                                <span>📁 หมวดหมู่: ${cat}</span>
+                                <span class="text-xs font-normal text-gray-500">(${catItems.length} รายการ)</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+
+                if (!isCollapsed) {
+                    catItems.forEach(p => {
+                        const safety = p.safetyStock || 0;
+
+                        let statusBadge = `<span class="bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full text-xs font-semibold">ไม่ได้ตั้งค่า</span>`;
+                        if (safety > 0) {
+                            if (p.currentQty <= safety) {
+                                statusBadge = `<span class="bg-red-100 text-red-700 border border-red-200 px-2.5 py-1 rounded-full text-xs font-bold animate-pulse">🚨 ต้องสั่งซื้อ</span>`;
+                            } else if (p.currentQty <= safety * 1.2) {
+                                statusBadge = `<span class="bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full text-xs font-semibold">⚠️ ใกล้สั่งซื้อ</span>`;
+                            } else {
+                                statusBadge = `<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full text-xs font-semibold">✅ ปกติ</span>`;
+                            }
+                        }
+
+                        // แสดง/ซ่อนปุ่มลบตามสถานะโหมดลบ
+                        const actionButtons = isDeleteMode 
+                            ? `<button onclick="deleteSingleProduct('${p.id}')" class="text-xs text-red-600 hover:text-red-800 font-semibold px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition" title="ลบรายการนี้ออกจากระบบสต๊อก">
+                                    🗑️ ลบรายการนี้
+                               </button>`
+                            : `<button onclick="openSafetyModal('${p.id}')" class="text-xs text-blue-600 hover:text-blue-800 font-semibold px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition">
+                                    ⚙️ ตั้งค่า Safety
+                               </button>`;
+
+                        const checkboxCol = isDeleteMode 
+                            ? `<td class="p-4 text-center bg-red-50/50">
+                                    <input type="checkbox" class="delete-product-cb w-4 h-4 text-red-600 rounded cursor-pointer" value="${p.id}">
+                               </td>`
+                            : '';
+
+                        bodyHTML += `
+                            <tr class="hover:bg-gray-50 transition">
+                                ${checkboxCol}
+                                <td class="p-4 font-semibold text-gray-700">${p.id}</td>
+                                <td class="p-4 font-medium text-gray-800">${p.name}</td>
+                                <td class="p-4 text-center font-semibold text-gray-700">${safety} ${p.unit}</td>
+                                <td class="p-4 text-right font-bold text-gray-900 text-base">${p.currentQty} ${p.unit}</td>
+                                <td class="p-4 text-center">${statusBadge}</td>
+                                <td class="p-4 text-center">
+                                    <div class="flex items-center justify-center gap-2">
+                                        ${actionButtons}
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+            });
+
+            if (bodyHTML === '') {
+                bodyHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="${colSpanTotal}">ไม่พบรายการสินค้าในหมวดหมู่ที่เลือก</td></tr>`;
+            }
+
+            tbody.innerHTML = bodyHTML;
+        }
+
+        function openSafetyModal(id) {
+            const product = products.find(p => p.id === id);
+            if (!product) return;
+            activeEditingId = id;
+            document.getElementById('modalItemName').textContent = `สินค้า: ${product.name} (รหัส ${product.id})`;
+            document.getElementById('modalSafetyInput').value = product.safetyStock || 0;
+            
+            document.getElementById('safetyModal').classList.remove('hidden');
+            document.getElementById('safetyModal').classList.add('flex');
+        }
+
+        function closeSafetyModal() {
+            document.getElementById('safetyModal').classList.add('hidden');
+            document.getElementById('safetyModal').classList.remove('flex');
+            activeEditingId = null;
+        }
+
+        async function saveSafetyModal() {
+            if (!activeEditingId) return;
+            const val = parseFloat(document.getElementById('modalSafetyInput').value) || 0;
+            const product = products.find(p => p.id === activeEditingId);
+            if (product) {
+                product.safetyStock = val;
+                await saveDataToGoogleSheets();
+                renderApp();
+                closeSafetyModal();
+            }
+        }
+
+        function renderTransactionLogs() {
+            const tbody = document.getElementById('transactionTableBody');
+            if (!tbody) return;
+
+            if (transactions.length === 0) {
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ยังไม่มีประวัติการเบิก-รับสินค้า</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = transactions.map(t => `
+                <tr class="hover:bg-gray-50 transition">
+                    <td class="p-4 text-xs text-gray-500 font-medium">${t.timestamp}</td>
+                    <td class="p-4 font-semibold text-gray-700">${t.productId}</td>
+                    <td class="p-4 font-medium text-gray-800">${t.productName}</td>
+                    <td class="p-4 text-center">
+                        <span class="px-2.5 py-1 rounded-full text-xs font-bold ${t.type === 'OUT' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">
+                            ${t.type === 'OUT' ? '📤 เบิกออก' : '📥 รับเข้า'}
+                        </span>
+                    </td>
+                    <td class="p-4 text-right font-bold ${t.type === 'OUT' ? 'text-red-600' : 'text-emerald-600'}">
+                        ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${t.unit}
+                    </td>
+                    <td class="p-4 text-gray-700 font-medium">${t.user}</td>
+                    <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
+                </tr>
+            `).join('');
+        }
+
+        function exportAllToExcel(customFilename = null) {
+            if (products.length === 0 && transactions.length === 0) {
+                return alert('ไม่มีข้อมูลในระบบสำหรับส่งออก');
+            }
+
+            const workbook = XLSX.utils.book_new();
+
+            if (products.length > 0) {
+                const matrixExportData = products.map(p => {
+                    const row = {
+                        'หมวดหมู่': p.category || 'ทั่วไป',
+                        'Mat.No.': p.id,
+                        'ชื่อสินค้า': p.name,
+                        'หน่วย': p.unit
+                    };
+
+                    const initialStock = calculateInitialQty(p.id);
+                    row['ยอดยกมา'] = initialStock;
+                    let previousCount = initialStock;
+
+                    auditDates.forEach(d => {
+                        const rec = auditRecords[d];
+                        const count = rec && rec.items ? rec.items[p.id] : undefined;
+                        if (count !== undefined) {
+                            row[`นับจริง (${d})`] = count;
+                            row[`Diff (${d})`] = count - previousCount;
+                            previousCount = count;
+                        } else {
+                            row[`นับจริง (${d})`] = '-';
+                            row[`Diff (${d})`] = '-';
+                        }
+                    });
+
+                    row['คงเหลือปัจจุบัน'] = p.currentQty;
+                    return row;
+                });
+
+                const wsMatrix = XLSX.utils.json_to_sheet(matrixExportData);
+                XLSX.utils.book_append_sheet(workbook, wsMatrix, "Matrix Diff");
+            }
+
+            if (products.length > 0) {
+                const stockExportData = products.map(p => {
+                    const safety = p.safetyStock || 0;
+                    let statusText = 'ไม่ได้ตั้งค่า';
+                    if (safety > 0) {
+                        if (p.currentQty <= safety) statusText = 'ต้องสั่งซื้อ';
+                        else if (p.currentQty <= safety * 1.2) statusText = 'ใกล้ถึงยอดสั่งซื้อ';
+                        else statusText = 'ปกติ';
+                    }
+
+                    return {
+                        'Mat.No.': p.id,
+                        'ชื่อสินค้า': p.name,
+                        'หมวดหมู่': p.category || 'ทั่วไป',
+                        'Safety Stock': safety,
+                        'คงเหลือปัจจุบัน': p.currentQty,
+                        'หน่วยนับ': p.unit,
+                        'สถานะ': statusText
+                    };
+                });
+
+                const wsStock = XLSX.utils.json_to_sheet(stockExportData);
+                XLSX.utils.book_append_sheet(workbook, wsStock, "Stock Master");
+            }
+
+            if (transactions.length > 0) {
+                const transExportData = transactions.map(t => ({
+                    'วัน-เวลา': t.timestamp,
+                    'Mat.No.': t.productId,
+                    'ชื่อสินค้า': t.productName,
+                    'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
+                    'จำนวน': t.qty,
+                    'หน่วย': t.unit,
+                    'ผู้ทำรายการ/แผนก': t.user,
+                    'หมายเหตุ': t.remark
+                }));
+
+                const wsTrans = XLSX.utils.json_to_sheet(transExportData);
+                XLSX.utils.book_append_sheet(workbook, wsTrans, "Transaction Logs");
+            }
+
+            const today = new Date().toISOString().split('T')[0];
+            const fileName = customFilename ? `${customFilename}_${today}.xlsx` : `Stock_Management_Report_${today}.xlsx`;
+            XLSX.writeFile(workbook, fileName);
+        }
+    </script>
+</body>
+</html>
