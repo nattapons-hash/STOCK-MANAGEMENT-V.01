@@ -40,7 +40,7 @@
                 <p class="text-gray-500 text-xs md:text-sm mt-1">จัดการเบิก-รับสินค้า, แจ้งเตือนสั่งซื้อ, ลงบันทึกตรวจนับ และดูตารางเปรียบเทียบยอด Diff ย้อนหลังทุกรอบ</p>
             </div>
             
-            <div class="flex flex-wrap gap-2 items-center">
+            <div id="headerActions" class="flex flex-wrap gap-2 items-center">
                 <button onclick="loadDataFromGoogleSheets()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🔄 รีเฟรชข้อมูล Real-time
                 </button>
@@ -50,8 +50,6 @@
                 <button onclick="switchTab('stock'); toggleDeleteMode(true);" class="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🗑️ ลบรายการสินค้า (เลือกทีละรายการ)
                 </button>
-
-                <!-- เพิ่มปุ่มเปลี่ยนรหัสผ่านและปุ่มล็อกเอาท์ -->
                 <button onclick="openChangePasswordModal()" class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🔑 เปลี่ยนรหัสผ่าน
                 </button>
