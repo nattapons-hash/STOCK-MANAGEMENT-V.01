@@ -27,28 +27,28 @@
         </form>
     </div>
 
-    <script>
-        // รหัสผ่านเริ่มต้น (หากยังไม่เคยเปลี่ยน)
-        const DEFAULT_PASS = "123";
+  <script>
+  // รหัสผ่านเริ่มต้น (หากยังไม่เคยเปลี่ยน)
+  const DEFAULT_PASS = "admin123";
 
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const usernameInput = document.getElementById('username').value.trim();
-            const passwordInput = document.getElementById('password').value.trim();
-            const errorMsg = document.getElementById('error-msg');
+  document.getElementById('loginForm').addEventListener('submit', function(e) {
+    e.preventDefault();
 
-            // ดึงรหัสผ่านล่าสุดจาก Local Storage (หากยังไม่มีให้ใช้ค่าเริ่มต้น 123)
-            const savedPassword = localStorage.getItem("appPassword") || DEFAULT_PASS;
+    const usernameInput = document.getElementById('username').value.trim();
+    const passwordInput = document.getElementById('password').value.trim();
+    const errorMsg = document.getElementById('error-msg');
 
-            // ตรวจสอบชื่อผู้ใช้และรหัสผ่าน
-            if (usernameInput === "admin" && passwordInput === savedPassword) {
-                localStorage.setItem("isLoggedIn", "true");
-                window.location.href = "index.html";
-            } else {
-                errorMsg.classList.remove('hidden');
-            }
-        });
-    </script>
+    // ดึงรหัสผ่านล่าสุดจาก Local Storage (หากไม่มีให้ใช้ค่าเริ่มต้น admin123)
+    const savedPassword = localStorage.getItem("appPassword") || DEFAULT_PASS;
+
+    // ตรวจสอบชื่อผู้ใช้และรหัสผ่าน
+    if (usernameInput === "admin" && passwordInput === savedPassword) {
+      localStorage.setItem("isLoggedIn", "true");
+      window.location.href = "index.html";
+    } else {
+      errorMsg.classList.remove('hidden');
+    }
+  });
+</script>
 </body>
 </html>
