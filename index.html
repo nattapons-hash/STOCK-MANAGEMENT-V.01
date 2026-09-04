@@ -40,7 +40,7 @@
                 <p class="text-gray-500 text-xs md:text-sm mt-1">จัดการเบิก-รับสินค้า, แจ้งเตือนสั่งซื้อ, ลงบันทึกตรวจนับ และดูตารางเปรียบเทียบยอด Diff ย้อนหลังทุกรอบ</p>
             </div>
             
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2 items-center">
                 <button onclick="loadDataFromGoogleSheets()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🔄 รีเฟรชข้อมูล Real-time
                 </button>
@@ -49,6 +49,14 @@
                 </button>
                 <button onclick="switchTab('stock'); toggleDeleteMode(true);" class="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🗑️ ลบรายการสินค้า (เลือกทีละรายการ)
+                </button>
+
+                <!-- เพิ่มปุ่มเปลี่ยนรหัสผ่านและปุ่มล็อกเอาท์ -->
+                <button onclick="openChangePasswordModal()" class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
+                    🔑 เปลี่ยนรหัสผ่าน
+                </button>
+                <button onclick="logout()" class="bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
+                    🚪 ล็อกเอาท์
                 </button>
             </div>
         </div>
@@ -421,6 +429,37 @@
     </div>
 
     <!-- Modals Section -->
+
+    <!-- Modal เปลี่ยนรหัสผ่าน -->
+    <div id="changePasswordModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div class="flex justify-between items-center border-b pb-3">
+                <h3 class="text-lg font-bold text-gray-800">🔑 เปลี่ยนรหัสผ่านเข้าใช้งาน</h3>
+                <button onclick="closeChangePasswordModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
+            </div>
+            
+            <form onsubmit="handleChangePassword(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">รหัสผ่านปัจจุบัน</label>
+                    <input type="password" id="oldPassword" required placeholder="กรอกรหัสผ่านปัจจุบัน..." class="w-full border border-gray-300 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">รหัสผ่านใหม่</label>
+                    <input type="password" id="newPassword" required placeholder="กรอกรหัสผ่านใหม่..." class="w-full border border-gray-300 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
+                    <input type="password" id="confirmNewPassword" required placeholder="กรอกรหัสผ่านใหม่อีกครั้ง..." class="w-full border border-gray-300 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+
+                <div class="flex justify-end gap-2 pt-3 border-t">
+                    <button type="button" onclick="closeChangePasswordModal()" class="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">ยกเลิก</button>
+                    <button type="submit" class="px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 shadow-sm">บันทึกรหัสผ่านใหม่</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div id="deleteAuditModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
             <div class="flex items-center gap-3 text-red-600 border-b pb-3">
@@ -552,6 +591,58 @@
 
         // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
         let isDeleteMode = false;
+
+        /* --- ฟังก์ชันล็อกเอาท์และเปลี่ยนรหัสผ่าน --- */
+        function logout() {
+            if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
+                localStorage.removeItem("isLoggedIn");
+                localStorage.removeItem("currentUser");
+                window.location.href = "login.html";
+            }
+        }
+
+        function openChangePasswordModal() {
+            document.getElementById('oldPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmNewPassword').value = '';
+            document.getElementById('changePasswordModal').classList.remove('hidden');
+            document.getElementById('changePasswordModal').classList.add('flex');
+        }
+
+        function closeChangePasswordModal() {
+            document.getElementById('changePasswordModal').classList.add('hidden');
+            document.getElementById('changePasswordModal').classList.remove('flex');
+        }
+
+        function handleChangePassword(e) {
+            e.preventDefault();
+            const oldPass = document.getElementById('oldPassword').value;
+            const newPass = document.getElementById('newPassword').value;
+            const confirmPass = document.getElementById('confirmNewPassword').value;
+
+            // ดึงรหัสผ่านปัจจุบันจาก localStorage (หากยังไม่มี ให้ถือว่ารหัสเริ่มต้นคือ admin123)
+            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
+
+            if (oldPass !== currentStoredPass) {
+                alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
+                return;
+            }
+
+            if (newPass.length < 4) {
+                alert("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 4 ตัวอักษร");
+                return;
+            }
+
+            if (newPass !== confirmPass) {
+                alert("รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน!");
+                return;
+            }
+
+            // บันทึกรหัสผ่านใหม่
+            localStorage.setItem("appPassword", newPass);
+            alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
+            closeChangePasswordModal();
+        }
 
         function showLoading(show) {
             const overlay = document.getElementById('loadingOverlay');
