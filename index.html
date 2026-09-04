@@ -14,6 +14,7 @@
     </style>
 </head>
     <script>
+        // ตรวจสอบสถานะการล็อกอินก่อนโหลดหน้าเว็บ
         if (localStorage.getItem("isLoggedIn") !== "true") {
             window.location.href = "login.html";
         }
@@ -40,7 +41,7 @@
                 <p class="text-gray-500 text-xs md:text-sm mt-1">จัดการเบิก-รับสินค้า, แจ้งเตือนสั่งซื้อ, ลงบันทึกตรวจนับ และดูตารางเปรียบเทียบยอด Diff ย้อนหลังทุกรอบ</p>
             </div>
             
-            <div id="headerActions" class="flex flex-wrap gap-2 items-center">
+            <div class="flex flex-wrap gap-2 items-center">
                 <button onclick="loadDataFromGoogleSheets()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🔄 รีเฟรชข้อมูล Real-time
                 </button>
@@ -50,6 +51,8 @@
                 <button onclick="switchTab('stock'); toggleDeleteMode(true);" class="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🗑️ ลบรายการสินค้า (เลือกทีละรายการ)
                 </button>
+
+                <!-- ปุ่มเปลี่ยนรหัสผ่านและปุ่มล็อกเอาท์ -->
                 <button onclick="openChangePasswordModal()" class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🔑 เปลี่ยนรหัสผ่าน
                 </button>
@@ -583,6 +586,7 @@
         let auditRecords = {}; 
         let transactions = [];
         let collapsedCategories = {};
+        let appPassword = "admin123"; // ตัวแปรเก็บรหัสผ่านระบบ
 
         let activeEditingId = null;
         let dateToDelete = null;
@@ -595,6 +599,7 @@
             if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
                 localStorage.removeItem("isLoggedIn");
                 localStorage.removeItem("currentUser");
+                localStorage.removeItem("appPassword");
                 window.location.href = "login.html";
             }
         }
@@ -612,14 +617,14 @@
             document.getElementById('changePasswordModal').classList.remove('flex');
         }
 
-        function handleChangePassword(e) {
+        async function handleChangePassword(e) {
             e.preventDefault();
             const oldPass = document.getElementById('oldPassword').value;
             const newPass = document.getElementById('newPassword').value;
             const confirmPass = document.getElementById('confirmNewPassword').value;
 
-            // ดึงรหัสผ่านปัจจุบันจาก localStorage (หากยังไม่มี ให้ถือว่ารหัสเริ่มต้นคือ admin123)
-            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
+            // ตรวจสอบกับรหัสผ่านปัจจุบัน
+            const currentStoredPass = appPassword || localStorage.getItem("appPassword") || "admin123";
 
             if (oldPass !== currentStoredPass) {
                 alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
@@ -636,8 +641,11 @@
                 return;
             }
 
-            // บันทึกรหัสผ่านใหม่
+            // บันทึกรหัสผ่านใหม่ทั้ง local และส่งไปยัง Google Sheets
+            appPassword = newPass;
             localStorage.setItem("appPassword", newPass);
+            await saveDataToGoogleSheets();
+
             alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
             closeChangePasswordModal();
         }
@@ -756,7 +764,8 @@
                 products: products,
                 auditDates: auditDates,
                 auditRecords: auditRecords,
-                transactions: transactions
+                transactions: transactions,
+                appPassword: appPassword // บันทึกรหัสผ่านผ่าน JSON ไปยัง Sheets
             };
 
             try {
@@ -787,6 +796,10 @@
                     if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
                     if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
                     if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
+                    if (remoteData.appPassword) {
+                        appPassword = remoteData.appPassword;
+                        localStorage.setItem("appPassword", remoteData.appPassword);
+                    }
                 }
 
                 renderCategoryOptions();
@@ -834,10 +847,8 @@
             
             if (confirm(`คุณต้องการลบรายการสินค้าที่เลือกทั้งหมด ${idsToDelete.length} รายการ ออกจากระบบใช่หรือไม่?\n\n*หมายเหตุ: ข้อมูลการเบิก-รับ และผลตรวจนับของสินค้าเหล่านี้จะถูกลบออกด้วย`)) {
                 
-                // ลบรายการออกจาก products
                 products = products.filter(p => !idsToDelete.includes(p.id));
 
-                // ลบออกจาก auditRecords
                 Object.keys(auditRecords).forEach(date => {
                     if (auditRecords[date] && auditRecords[date].items) {
                         idsToDelete.forEach(id => {
@@ -847,7 +858,7 @@
                 });
 
                 await saveDataToGoogleSheets();
-                toggleDeleteMode(false); // ปิดโหมดลบเมื่อลบเสร็จ
+                toggleDeleteMode(false);
                 renderApp();
                 alert(`ลบรายการสินค้าเรียบร้อยแล้ว ${idsToDelete.length} รายการ`);
             }
@@ -1556,7 +1567,6 @@
             const thead = document.getElementById('stockTableHeader');
             if (!tbody || !thead) return;
 
-            // Render Header
             if (isDeleteMode) {
                 thead.innerHTML = `
                     <th class="p-4 text-center w-12 bg-red-50">
@@ -1644,7 +1654,6 @@
                             }
                         }
 
-                        // แสดง/ซ่อนปุ่มลบตามสถานะโหมดลบ
                         const actionButtons = isDeleteMode 
                             ? `<button onclick="deleteSingleProduct('${p.id}')" class="text-xs text-red-600 hover:text-red-800 font-semibold px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition" title="ลบรายการนี้ออกจากระบบสต๊อก">
                                     🗑️ ลบรายการนี้
