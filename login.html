@@ -28,22 +28,25 @@
     </div>
 
     <script>
-        // รหัสผ่านเริ่มต้น
+        // รหัสผ่านเริ่มต้น (หากยังไม่เคยเปลี่ยน)
         const DEFAULT_PASS = "123";
 
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const u = document.getElementById('username').value.trim();
-            const p = document.getElementById('password').value.trim();
+            
+            const usernameInput = document.getElementById('username').value.trim();
+            const passwordInput = document.getElementById('password').value.trim();
+            const errorMsg = document.getElementById('error-msg');
 
-            // ดึงรหัสผ่านปัจจุบัน (ถ้าเคยเปลี่ยน ให้ใช้รหัสใหม่ ถ้ายัง ให้ใช้ 123)
-            const currentPass = localStorage.getItem("app_password") || DEFAULT_PASS;
+            // ดึงรหัสผ่านล่าสุดจาก Local Storage (หากยังไม่มีให้ใช้ค่าเริ่มต้น 123)
+            const savedPassword = localStorage.getItem("appPassword") || DEFAULT_PASS;
 
-            if (u === "admin" && p === currentPass) {
+            // ตรวจสอบชื่อผู้ใช้และรหัสผ่าน
+            if (usernameInput === "admin" && passwordInput === savedPassword) {
                 localStorage.setItem("isLoggedIn", "true");
                 window.location.href = "index.html";
             } else {
-                document.getElementById('error-msg').classList.remove('hidden');
+                errorMsg.classList.remove('hidden');
             }
         });
     </script>
