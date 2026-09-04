@@ -13,6 +13,11 @@
         body { font-family: 'Kanit', sans-serif; }
     </style>
 </head>
+    <script>
+        if (localStorage.getItem("isLoggedIn") !== "true") {
+            window.location.href = "login.html";
+        }
+    </script>
 <body class="bg-gray-100 min-h-screen p-3 md:p-6">
 
     <!-- Loading Indicator overlay -->
