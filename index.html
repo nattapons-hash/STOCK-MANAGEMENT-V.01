@@ -739,7 +739,6 @@
         }
 
         function renderApp() {
-            syncCurrentStockFromTransactions();
             renderMatrixTable();
             renderQuickStockTable();
             renderTransactionLogs();
@@ -791,33 +790,17 @@
             }
         }
 
-        // ==============================
-        // คำนวณสต๊อกจริงจากยอดตั้งต้น + ประวัติรับ/เบิก
-        // ==============================
-        // คำนวณยอดยกมาจริงจาก "ยอดคงเหลือปัจจุบันใน Products" และประวัติ Transactions
-        // เพื่อไม่ให้ initialQty ที่ถูกบันทึกคลาดเคลื่อนทำให้ยอดในหน้าเว็บ/Google Sheets เพี้ยน
-        // สูตร: ยอดยกมา = currentQty - (ยอดรับเข้าทั้งหมด - ยอดเบิกออกทั้งหมด)
-        // ตัวอย่าง G001: currentQty 72 และสุทธิจากประวัติ -34 => ยอดยกมา 106
+        // ยอดตั้งต้นของสินค้า = initialQty เท่านั้น
+        // ห้ามนำ Transactions หรือ Audit มาบวก/ลบซ้ำ เพราะจะทำให้ยอดคงเหลือเพี้ยน
         function calculateInitialQty(productId) {
             const product = products.find(p => String(p.id) === String(productId));
             if (!product) return 0;
 
-            const storedCurrent = Number(product.currentQty);
-            if (Number.isFinite(storedCurrent)) {
-                let netMovement = 0;
-                transactions.forEach(t => {
-                    if (String(t.productId) !== String(productId)) return;
-                    const qty = Number(t.qty) || 0;
-                    if (String(t.type).toUpperCase() === 'IN') netMovement += qty;
-                    else if (String(t.type).toUpperCase() === 'OUT') netMovement -= qty;
-                });
+            const initial = Number(product.initialQty);
+            if (Number.isFinite(initial)) return initial;
 
-                // currentQty - netMovement คือยอดก่อนเริ่มมีประวัติธุรกรรม
-                const derivedInitial = storedCurrent - netMovement;
-                if (Number.isFinite(derivedInitial)) return derivedInitial;
-            }
-
-            return Number(product.initialQty ?? 0) || 0;
+            const current = Number(product.currentQty);
+            return Number.isFinite(current) ? current : 0;
         }
 
         function getTransactionTimeValue(timestamp) {
@@ -827,7 +810,7 @@
             // ISO timestamp จาก Google Sheets เช่น 2026-09-05T02:26:00.000Z
             if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
                 const d = new Date(value);
-                return isNaN(d.getTime()) ? 0 : d.getTime();
+                return Number.isNaN(d.getTime()) ? 0 : d.getTime();
             }
 
             // Timestamp แบบ local: YYYY-MM-DD HH:mm[:ss]
@@ -840,62 +823,68 @@
             }
 
             const d = new Date(value);
-            return isNaN(d.getTime()) ? 0 : d.getTime();
+            return Number.isNaN(d.getTime()) ? 0 : d.getTime();
         }
 
-        // คืนค่า stock หลังทำรายการของแต่ละ transaction
-        // สูตร: initialQty + IN - OUT โดยเรียงจากเก่า -> ใหม่
+        // คำนวณยอดคงเหลือจากยอดตั้งต้นจริง + รายการรับเข้า/เบิกออกทั้งหมด
+        // สำคัญ: ไม่ใช้ currentQty เป็นฐานในการคำนวณ และไม่ใช้ AuditRecords มาปนกับ Transactions
         function calculateTransactionBalances() {
-            const balanceMap = new Map();
-            const running = new Map();
+            const balances = new Map();
+            const grouped = new Map();
 
-            products.forEach(p => {
-                running.set(String(p.id), calculateInitialQty(p.id));
-            });
-
-            const ordered = transactions
-                .map((t, index) => ({ t, index }))
-                .sort((a, b) => {
-                    const ta = getTransactionTimeValue(a.t.timestamp);
-                    const tb = getTransactionTimeValue(b.t.timestamp);
-                    if (ta !== tb) return ta - tb;
-                    return a.index - b.index;
+            transactions.forEach((t, sourceIndex) => {
+                const productId = String(t.productId);
+                if (!grouped.has(productId)) grouped.set(productId, []);
+                grouped.get(productId).push({
+                    transaction: t,
+                    sourceIndex,
+                    time: getTransactionTimeValue(t.timestamp)
                 });
-
-            ordered.forEach(({ t }) => {
-                const id = String(t.productId);
-                if (!running.has(id)) {
-                    const product = products.find(p => String(p.id) === id);
-                    running.set(id, calculateInitialQty(id) || Number(product?.currentQty || 0));
-                }
-
-                let balance = Number(running.get(id)) || 0;
-                const qty = Number(t.qty) || 0;
-
-                if (String(t.type).toUpperCase() === 'IN') {
-                    balance += qty;
-                } else if (String(t.type).toUpperCase() === 'OUT') {
-                    balance -= qty;
-                }
-
-                running.set(id, balance);
-                balanceMap.set(t, balance);
             });
 
-            return { balanceMap, running };
+            grouped.forEach((items, productId) => {
+                // เริ่มจาก initialQty เช่น G001 = 106
+                let balance = calculateInitialQty(productId);
+
+                // เก่า -> ใหม่ เพื่อให้ยอดของแต่ละแถวเป็นยอดหลังทำรายการนั้นจริง ๆ
+                items.sort((a, b) => a.time - b.time || b.sourceIndex - a.sourceIndex);
+
+                items.forEach(item => {
+                    const type = String(item.transaction.type || '').toUpperCase();
+                    const qty = Number(item.transaction.qty) || 0;
+
+                    if (type === 'IN') balance += qty;
+                    else if (type === 'OUT') balance -= qty;
+
+                    balances.set(item.transaction, balance);
+                });
+            });
+
+            return balances;
         }
 
-        // ทำให้ currentQty ในหน้าเว็บตรงกับประวัติการรับ/เบิกเสมอ
+        // อัปเดต currentQty ของ Products ให้ตรงกับผลรวม Transactions ทั้งหมด
         function syncCurrentStockFromTransactions() {
-            const { running } = calculateTransactionBalances();
-            products.forEach(p => {
-                const id = String(p.id);
-                if (running.has(id)) {
-                    p.currentQty = Number(running.get(id)) || 0;
-                } else {
-                    p.currentQty = calculateInitialQty(id);
+            const balances = calculateTransactionBalances();
+            const finalByProduct = new Map();
+
+            transactions.forEach(t => {
+                const balance = balances.get(t);
+                if (balance !== undefined) {
+                    finalByProduct.set(String(t.productId), Number(balance));
                 }
             });
+
+            products.forEach(product => {
+                const id = String(product.id);
+                if (finalByProduct.has(id)) {
+                    product.currentQty = finalByProduct.get(id);
+                } else {
+                    product.currentQty = calculateInitialQty(id);
+                }
+            });
+
+            return balances;
         }
 
         async function saveDataToGoogleSheets() {
@@ -940,7 +929,8 @@
                     if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
                 }
 
-                // ใช้ยอดตั้งต้นและประวัติรับ/เบิกเป็นแหล่งคำนวณสต๊อกหลัก
+                // โหลดเสร็จแล้วคำนวณยอดปัจจุบันใหม่จาก initialQty + Transactions ทั้งหมด
+                // เพื่อให้แดชบอร์ด, หน้าประวัติ และตารางสต๊อกใช้ยอดเดียวกัน
                 syncCurrentStockFromTransactions();
 
                 renderCategoryOptions();
@@ -1614,6 +1604,11 @@
                 const finalRemark = itemRemark || mainRemark || '-';
 
                 const product = products.find(p => p.id === id);
+                if (transType === 'OUT') {
+                    product.currentQty -= qty;
+                } else {
+                    product.currentQty += qty;
+                }
 
                 transactions.unshift({
                     timestamp: `${date} ${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`,
@@ -1629,7 +1624,7 @@
                 processedCount++;
             });
 
-            // คำนวณยอดคงเหลือใหม่จากยอดตั้งต้น + ประวัติทั้งหมด เพื่อไม่ให้ตัวเลขคลาดเคลื่อน
+            // คำนวณยอดจากประวัติทั้งหมดอีกครั้งก่อนบันทึก เพื่อป้องกัน currentQty คลาดเคลื่อน
             syncCurrentStockFromTransactions();
             await saveDataToGoogleSheets();
             alert(`บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} สำเร็จแล้ว ${processedCount} รายการ!`);
@@ -2074,6 +2069,11 @@
             renderTransactionLogs();
         }
 
+        function getTransactionSortTime(timestamp) {
+            const time = new Date(timestamp).getTime();
+            return Number.isNaN(time) ? 0 : time;
+        }
+
         function renderTransactionLogs() {
             const tbody = document.getElementById('transactionTableBody');
             if (!tbody) return;
@@ -2091,29 +2091,39 @@
                 return;
             }
 
-            const { balanceMap } = calculateTransactionBalances();
+            // คำนวณจาก Transactions ทั้งหมด แล้วค่อยนำผลมาแสดงตามตัวกรอง
+            const stockBalanceByTransaction = calculateTransactionBalances();
 
-            tbody.innerHTML = filteredTransactions.map(t => {
-                const balance = balanceMap.has(t) ? balanceMap.get(t) : '-';
+            // ประวัติเรียงล่าสุด -> เก่าสุด แต่ยอดคงเหลือคำนวณเก่า -> ใหม่
+            const displayTransactions = filteredTransactions
+                .map((t, index) => ({ t, index, time: getTransactionTimeValue(t.timestamp) }))
+                .sort((a, b) => b.time - a.time || a.index - b.index)
+                .map(item => item.t);
+
+            tbody.innerHTML = displayTransactions.map(t => {
+                const balance = stockBalanceByTransaction.get(t);
+                const balanceText = balance !== undefined
+                    ? `${balance} ${t.unit || ''}`
+                    : '';
+
                 return `
-                <tr class="hover:bg-gray-50 transition">
-                    <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
-                    <td class="p-4 font-semibold text-gray-700">${escapeTransactionHtml(t.productId)}</td>
-                    <td class="p-4 font-medium text-gray-800">${escapeTransactionHtml(t.productName)}</td>
-                    <td class="p-4 text-center">
-                        <span class="px-2.5 py-1 rounded-full text-xs font-bold ${t.type === 'OUT' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">
-                            ${t.type === 'OUT' ? '📤 เบิกออก' : '📥 รับเข้า'}
-                        </span>
-                    </td>
-                    <td class="p-4 text-right font-bold ${t.type === 'OUT' ? 'text-red-600' : 'text-emerald-600'}">
-                        ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${escapeTransactionHtml(t.unit || '')}
-                    </td>
-                    <td class="p-4 text-right font-bold text-emerald-700 bg-emerald-50/30">
-                        ${balance} ${escapeTransactionHtml(t.unit || '')}
-                    </td>
-                    <td class="p-4 text-gray-700 font-medium">${escapeTransactionHtml(t.user)}</td>
-                    <td class="p-4 text-gray-500 text-xs">${escapeTransactionHtml(t.remark)}</td>
-                </tr>`;
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
+                        <td class="p-4 font-semibold text-gray-700">${escapeTransactionHtml(t.productId)}</td>
+                        <td class="p-4 font-medium text-gray-800">${escapeTransactionHtml(t.productName)}</td>
+                        <td class="p-4 text-center">
+                            <span class="px-2.5 py-1 rounded-full text-xs font-bold ${t.type === 'OUT' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">
+                                ${t.type === 'OUT' ? '📤 เบิกออก' : '📥 รับเข้า'}
+                            </span>
+                        </td>
+                        <td class="p-4 text-right font-bold ${t.type === 'OUT' ? 'text-red-600' : 'text-emerald-600'}">
+                            ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${escapeTransactionHtml(t.unit || '')}
+                        </td>
+                        <td class="p-4 text-right font-bold text-emerald-700 bg-emerald-50/30">${balanceText}</td>
+                        <td class="p-4 text-gray-700 font-medium">${escapeTransactionHtml(t.user)}</td>
+                        <td class="p-4 text-gray-500 text-xs">${escapeTransactionHtml(t.remark)}</td>
+                    </tr>
+                `;
             }).join('');
         }
 
@@ -2127,9 +2137,19 @@
                 return alert('ไม่พบข้อมูลตามตัวกรอง กรุณากดค้นหาใหม่');
             }
 
-            const { balanceMap } = calculateTransactionBalances();
+            // Export ใช้ยอดคงเหลือหลังแต่ละความเคลื่อนไหว และแสดงเฉพาะแถวล่าสุดของสินค้าแต่ละรายการ
+            const stockBalanceByTransaction = calculateTransactionBalances();
+            const latestExportByProduct = {};
+            filteredTransactions.forEach((t, index) => {
+                const key = String(t.productId);
+                const time = getTransactionSortTime(t.timestamp);
+                if (!latestExportByProduct[key] || time > latestExportByProduct[key].time ||
+                    (time === latestExportByProduct[key].time && index < latestExportByProduct[key].index)) {
+                    latestExportByProduct[key] = { index, time };
+                }
+            });
 
-            const exportData = filteredTransactions.map(t => ({
+            const exportData = filteredTransactions.map((t, index) => ({
                 'วัน-เวลา': formatTransactionTimestamp(t.timestamp),
                 'Mat.No.': t.productId,
                 'ชื่อสินค้า': t.productName,
@@ -2137,7 +2157,7 @@
                 'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
                 'จำนวน': t.qty,
                 'หน่วย': t.unit,
-                'สต๊อกคงเหลือหลังรายการ': balanceMap.has(t) ? balanceMap.get(t) : '',
+                'สต๊อกคงเหลือปัจจุบัน': latestExportByProduct[String(t.productId)]?.index === index ? (stockBalanceByTransaction.get(t) ?? '') : '',
                 'ผู้ทำรายการ/แผนก': t.user,
                 'หมายเหตุ': t.remark
             }));
