@@ -51,12 +51,22 @@
                 <button onclick="switchTab('stock'); toggleDeleteMode(true);" class="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
                     🗑️ ลบรายการสินค้า (เลือกทีละรายการ)
                 </button>
-                <button onclick="openChangePasswordModal()" class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
-                    🔑 เปลี่ยนรหัสผ่าน
-                </button>
-                <button onclick="logout()" class="bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
-                    🚪 ล็อกเอาท์
-                </button>
+
+                <!-- บัญชีผู้ใช้งาน Dropdown: แทนปุ่มเปลี่ยนรหัสผ่านและล็อกเอาท์ -->
+                <div id="accountDropdown" class="relative">
+                    <button id="accountDropdownButton" type="button" onclick="toggleAccountDropdown(event)" class="bg-gray-800 hover:bg-gray-900 text-white font-medium px-4 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
+                        👤 บัญชีผู้ใช้งาน
+                        <span id="accountDropdownArrow" class="text-xs transition-transform">⌄</span>
+                    </button>
+                    <div id="accountDropdownMenu" class="hidden absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-[120]">
+                        <button type="button" onclick="logout(); closeAccountDropdown();" class="w-full text-left px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 transition flex items-center gap-2">
+                            🚪 ล็อกเอาท์
+                        </button>
+                        <button type="button" onclick="openChangePasswordModal(); closeAccountDropdown();" class="w-full text-left px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-2 border-t border-gray-100">
+                            🔑 เปลี่ยนรหัสผ่าน
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -599,6 +609,25 @@
                 window.location.href = "login.html";
             }
         }
+        function toggleAccountDropdown(event) {
+            if (event) event.stopPropagation();
+            const menu = document.getElementById('accountDropdownMenu');
+            const arrow = document.getElementById('accountDropdownArrow');
+            if (!menu) return;
+            const isHidden = menu.classList.contains('hidden');
+            menu.classList.toggle('hidden', !isHidden);
+            if (arrow) arrow.classList.toggle('rotate-180', isHidden);
+        }
+        function closeAccountDropdown() {
+            const menu = document.getElementById('accountDropdownMenu');
+            const arrow = document.getElementById('accountDropdownArrow');
+            if (menu) menu.classList.add('hidden');
+            if (arrow) arrow.classList.remove('rotate-180');
+        }
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('accountDropdown');
+            if (dropdown && !dropdown.contains(event.target)) closeAccountDropdown();
+        });
 
         function openChangePasswordModal() {
             document.getElementById('oldPassword').value = '';
