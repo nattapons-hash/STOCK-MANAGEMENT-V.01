@@ -1989,6 +1989,48 @@
             renderTransactionLogs();
         }
 
+        function getTransactionSortTime(timestamp) {
+            const time = new Date(timestamp).getTime();
+            return Number.isNaN(time) ? 0 : time;
+        }
+
+        function calculateTransactionBalances() {
+            const balances = new Map();
+            const grouped = {};
+
+            transactions.forEach((t, sourceIndex) => {
+                const key = String(t.productId);
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push({ transaction: t, sourceIndex, time: getTransactionSortTime(t.timestamp) });
+            });
+
+            Object.keys(grouped).forEach(productId => {
+                const product = products.find(p => String(p.id) === productId);
+                let balance = Number(product?.initialQty);
+                if (!Number.isFinite(balance)) {
+                    balance = Number(product?.currentQty) || 0;
+                    // หากไม่มี initialQty ให้คำนวณย้อนจาก currentQty เพื่อไม่ให้ยอดปัจจุบันถูกบวกซ้ำ
+                    const totalChange = grouped[productId].reduce((sum, item) => {
+                        const q = Number(item.transaction.qty) || 0;
+                        return sum + (item.transaction.type === 'IN' ? q : -q);
+                    }, 0);
+                    balance -= totalChange;
+                }
+
+                // transactions ถูกเก็บใหม่สุดไว้ด้านหน้า ดังนั้นกรณีเวลาเท่ากัน
+                // sourceIndex มากกว่าจะเป็นรายการที่เกิดก่อนในชุดเดียวกัน
+                grouped[productId].sort((a, b) => a.time - b.time || b.sourceIndex - a.sourceIndex);
+
+                grouped[productId].forEach(item => {
+                    const qty = Number(item.transaction.qty) || 0;
+                    balance += item.transaction.type === 'IN' ? qty : -qty;
+                    balances.set(item.transaction, balance);
+                });
+            });
+
+            return balances;
+        }
+
         function renderTransactionLogs() {
             const tbody = document.getElementById('transactionTableBody');
             if (!tbody) return;
@@ -2007,23 +2049,17 @@
                 return;
             }
 
-            // แสดงสต๊อกคงเหลือปัจจุบันเฉพาะแถวความเคลื่อนไหวล่าสุดของสินค้าแต่ละรายการ
-            const latestTransactionKeys = new Set();
-            filteredTransactions.forEach((t, index) => {
-                const productKey = String(t.productId);
-                const currentTime = new Date(t.timestamp).getTime();
-                const previousIndex = latestTransactionKeys.has(productKey) ? -1 : undefined;
-                if (previousIndex === undefined) {
-                    latestTransactionKeys.add(productKey + '::' + index);
-                }
-            });
+            // คำนวณยอดคงเหลือหลังแต่ละความเคลื่อนไหวจากยอดตั้งต้น + รับเข้า - เบิกออก
+            // ใช้ transaction ทั้งหมดในการคำนวณ เพื่อให้แม้มีการกรองวันที่ ยอดย้อนหลังยังถูกต้อง
+            const stockBalanceByTransaction = calculateTransactionBalances();
 
-            // หาแถวล่าสุดจริงของแต่ละสินค้า โดยไม่ขึ้นกับลำดับข้อมูลต้นทาง
+            // แสดงยอดคงเหลือเฉพาะแถวความเคลื่อนไหวล่าสุดของสินค้าแต่ละรายการ
             const latestByProduct = {};
             filteredTransactions.forEach((t, index) => {
                 const key = String(t.productId);
-                const time = new Date(t.timestamp).getTime();
-                if (!latestByProduct[key] || time > latestByProduct[key].time) {
+                const time = getTransactionSortTime(t.timestamp);
+                if (!latestByProduct[key] || time > latestByProduct[key].time ||
+                    (time === latestByProduct[key].time && index < latestByProduct[key].index)) {
                     latestByProduct[key] = { index, time };
                 }
             });
@@ -2042,7 +2078,7 @@
                         ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${t.unit}
                     </td>
                     <td class="p-4 text-right font-bold text-gray-900">
-                        ${latestByProduct[String(t.productId)]?.index === index ? (() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? `${p.currentQty} ${p.unit || t.unit || ''}` : '-'; })() : ''}
+                        ${latestByProduct[String(t.productId)]?.index === index ? (() => { const balance = stockBalanceByTransaction.get(t); return balance !== undefined ? `${balance} ${t.unit || ''}` : ''; })() : ''}
                     </td>
                     <td class="p-4 text-gray-700 font-medium">${t.user}</td>
                     <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
@@ -2061,12 +2097,14 @@
                 return alert('ไม่พบข้อมูลตามตัวกรอง กรุณากดค้นหาใหม่');
             }
 
-            // Export สต๊อกคงเหลือเฉพาะแถวความเคลื่อนไหวล่าสุดของสินค้าแต่ละรายการ
+            // Export ใช้ยอดคงเหลือหลังแต่ละความเคลื่อนไหว และแสดงเฉพาะแถวล่าสุดของสินค้าแต่ละรายการ
+            const stockBalanceByTransaction = calculateTransactionBalances();
             const latestExportByProduct = {};
             filteredTransactions.forEach((t, index) => {
                 const key = String(t.productId);
-                const time = new Date(t.timestamp).getTime();
-                if (!latestExportByProduct[key] || time > latestExportByProduct[key].time) {
+                const time = getTransactionSortTime(t.timestamp);
+                if (!latestExportByProduct[key] || time > latestExportByProduct[key].time ||
+                    (time === latestExportByProduct[key].time && index < latestExportByProduct[key].index)) {
                     latestExportByProduct[key] = { index, time };
                 }
             });
@@ -2079,7 +2117,7 @@
                 'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
                 'จำนวน': t.qty,
                 'หน่วย': t.unit,
-                'สต๊อกคงเหลือปัจจุบัน': latestExportByProduct[String(t.productId)]?.index === index ? (() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? p.currentQty : ''; })() : '',
+                'สต๊อกคงเหลือปัจจุบัน': latestExportByProduct[String(t.productId)]?.index === index ? (stockBalanceByTransaction.get(t) ?? '') : '',
                 'ผู้ทำรายการ/แผนก': t.user,
                 'หมายเหตุ': t.remark
             }));
