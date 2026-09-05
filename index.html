@@ -1740,6 +1740,37 @@
             }
         }
 
+        function formatTransactionTimestamp(timestamp) {
+            if (!timestamp) return '';
+
+            const value = String(timestamp).trim();
+
+            // ISO timestamp from Google Sheets, e.g. 2026-09-05T02:26:00.000Z
+            // Display in Thailand time (UTC+7) as DD/MM/YYYY HH:mm.
+            if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+                const d = new Date(value);
+                if (!isNaN(d.getTime())) {
+                    return new Intl.DateTimeFormat('en-GB', {
+                        timeZone: 'Asia/Bangkok',
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).format(d);
+                }
+            }
+
+            // Keep existing local-style timestamps readable without changing their value.
+            const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+            if (match) {
+                return `${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}`;
+            }
+
+            return value;
+        }
+
         function renderTransactionLogs() {
             const tbody = document.getElementById('transactionTableBody');
             if (!tbody) return;
@@ -1751,7 +1782,7 @@
 
             tbody.innerHTML = transactions.map(t => `
                 <tr class="hover:bg-gray-50 transition">
-                    <td class="p-4 text-xs text-gray-500 font-medium">${t.timestamp}</td>
+                    <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
                     <td class="p-4 font-semibold text-gray-700">${t.productId}</td>
                     <td class="p-4 font-medium text-gray-800">${t.productName}</td>
                     <td class="p-4 text-center">
