@@ -461,6 +461,7 @@
                             <th class="p-4">รายการสินค้า</th>
                             <th class="p-4 text-center">ประเภทรายการ</th>
                             <th class="p-4 text-right">จำนวน</th>
+                            <th class="p-4 text-right">สต๊อกคงเหลือปัจจุบัน</th>
                             <th class="p-4">ผู้ทำรายการ/แผนก</th>
                             <th class="p-4">หมายเหตุ</th>
                         </tr>
@@ -1995,14 +1996,14 @@
             populateTransactionFilters();
 
             if (transactions.length === 0) {
-                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ยังไม่มีประวัติการเบิก-รับสินค้า</td></tr>`;
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="8">ยังไม่มีประวัติการเบิก-รับสินค้า</td></tr>`;
                 return;
             }
 
             const filteredTransactions = getFilteredTransactions();
 
             if (filteredTransactions.length === 0) {
-                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ไม่พบประวัติที่ตรงกับตัวกรอง</td></tr>`;
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="8">ไม่พบประวัติที่ตรงกับตัวกรอง</td></tr>`;
                 return;
             }
 
@@ -2018,6 +2019,9 @@
                     </td>
                     <td class="p-4 text-right font-bold ${t.type === 'OUT' ? 'text-red-600' : 'text-emerald-600'}">
                         ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${t.unit}
+                    </td>
+                    <td class="p-4 text-right font-bold text-gray-900">
+                        ${(() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? `${p.currentQty} ${p.unit || t.unit || ''}` : '-'; })()}
                     </td>
                     <td class="p-4 text-gray-700 font-medium">${t.user}</td>
                     <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
@@ -2044,6 +2048,7 @@
                 'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
                 'จำนวน': t.qty,
                 'หน่วย': t.unit,
+                'สต๊อกคงเหลือปัจจุบัน': (() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? p.currentQty : ''; })(),
                 'ผู้ทำรายการ/แผนก': t.user,
                 'หมายเหตุ': t.remark
             }));
