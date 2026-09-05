@@ -790,30 +790,33 @@
             }
         }
 
-        // ยอดตั้งต้นของสินค้า = initialQty เท่านั้น
-        // ห้ามนำ Transactions หรือ Audit มาบวก/ลบซ้ำ เพราะจะทำให้ยอดคงเหลือเพี้ยน
+        // ==================== STOCK BALANCE: SINGLE SOURCE OF TRUTH ====================
+        // ใช้ Products.currentQty จาก Google Sheets เป็น "ยอดคงเหลือปัจจุบันจริง"
+        // ห้ามคำนวณยอดปัจจุบันใหม่จาก Transactions แล้วเขียนทับ เพราะข้อมูลเก่าอาจมี
+        // รายการย้อนหลัง/การปรับสต๊อกที่ทำให้ยอดซ้ำหรือคลาดเคลื่อนได้
         function calculateInitialQty(productId) {
             const product = products.find(p => String(p.id) === String(productId));
             if (!product) return 0;
-
             const initial = Number(product.initialQty);
-            if (Number.isFinite(initial)) return initial;
+            return Number.isFinite(initial) ? initial : 0;
+        }
 
+        function getCurrentStock(productId) {
+            const product = products.find(p => String(p.id) === String(productId));
+            if (!product) return 0;
             const current = Number(product.currentQty);
-            return Number.isFinite(current) ? current : 0;
+            return Number.isFinite(current) ? current : calculateInitialQty(productId);
         }
 
         function getTransactionTimeValue(timestamp) {
             if (!timestamp) return 0;
             const value = String(timestamp).trim();
 
-            // ISO timestamp จาก Google Sheets เช่น 2026-09-05T02:26:00.000Z
             if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
                 const d = new Date(value);
                 return Number.isNaN(d.getTime()) ? 0 : d.getTime();
             }
 
-            // Timestamp แบบ local: YYYY-MM-DD HH:mm[:ss]
             const m = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
             if (m) {
                 return new Date(
@@ -826,8 +829,9 @@
             return Number.isNaN(d.getTime()) ? 0 : d.getTime();
         }
 
-        // คำนวณยอดคงเหลือจากยอดตั้งต้นจริง + รายการรับเข้า/เบิกออกทั้งหมด
-        // สำคัญ: ไม่ใช้ currentQty เป็นฐานในการคำนวณ และไม่ใช้ AuditRecords มาปนกับ Transactions
+        // คำนวณยอดหลังรายการแต่ละแถว โดย "ย้อนกลับ" จากยอดคงเหลือปัจจุบัน
+        // ทำให้แถวล่าสุดตรงกับ Products.currentQty เสมอ และไม่เกิดการบวก/ลบซ้ำ
+        // เช่น G001 ปัจจุบัน 72 -> แถวล่าสุดต้องเป็น 72 ทันที
         function calculateTransactionBalances() {
             const balances = new Map();
             const grouped = new Map();
@@ -843,48 +847,31 @@
             });
 
             grouped.forEach((items, productId) => {
-                // เริ่มจาก initialQty เช่น G001 = 106
-                let balance = calculateInitialQty(productId);
+                // เรียงใหม่ -> เก่า เพื่อเดินยอดย้อนกลับจากยอดปัจจุบัน
+                items.sort((a, b) => b.time - a.time || a.sourceIndex - b.sourceIndex);
 
-                // เก่า -> ใหม่ เพื่อให้ยอดของแต่ละแถวเป็นยอดหลังทำรายการนั้นจริง ๆ
-                items.sort((a, b) => a.time - b.time || b.sourceIndex - a.sourceIndex);
+                let balanceAfter = getCurrentStock(productId);
 
                 items.forEach(item => {
+                    // balanceAfter = ยอดหลังทำรายการนี้
+                    balances.set(item.transaction, balanceAfter);
+
                     const type = String(item.transaction.type || '').toUpperCase();
                     const qty = Number(item.transaction.qty) || 0;
 
-                    if (type === 'IN') balance += qty;
-                    else if (type === 'OUT') balance -= qty;
-
-                    balances.set(item.transaction, balance);
+                    // ย้อนกลับไปหายอดก่อนทำรายการ
+                    if (type === 'IN') balanceAfter -= qty;
+                    else if (type === 'OUT') balanceAfter += qty;
                 });
             });
 
             return balances;
         }
 
-        // อัปเดต currentQty ของ Products ให้ตรงกับผลรวม Transactions ทั้งหมด
+        // ไม่เขียนทับ Products.currentQty ตอนโหลดข้อมูล
+        // เพราะค่านี้คือยอดปัจจุบันที่บันทึกอยู่ใน Google Sheets และเป็น source of truth
         function syncCurrentStockFromTransactions() {
-            const balances = calculateTransactionBalances();
-            const finalByProduct = new Map();
-
-            transactions.forEach(t => {
-                const balance = balances.get(t);
-                if (balance !== undefined) {
-                    finalByProduct.set(String(t.productId), Number(balance));
-                }
-            });
-
-            products.forEach(product => {
-                const id = String(product.id);
-                if (finalByProduct.has(id)) {
-                    product.currentQty = finalByProduct.get(id);
-                } else {
-                    product.currentQty = calculateInitialQty(id);
-                }
-            });
-
-            return balances;
+            return calculateTransactionBalances();
         }
 
         async function saveDataToGoogleSheets() {
@@ -929,9 +916,8 @@
                     if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
                 }
 
-                // โหลดเสร็จแล้วคำนวณยอดปัจจุบันใหม่จาก initialQty + Transactions ทั้งหมด
-                // เพื่อให้แดชบอร์ด, หน้าประวัติ และตารางสต๊อกใช้ยอดเดียวกัน
-                syncCurrentStockFromTransactions();
+                // ใช้ products.currentQty จาก Google Sheets เป็นยอดคงเหลือปัจจุบันจริง
+                // ไม่คำนวณ/เขียนทับจาก Transactions ตอนโหลดข้อมูล
 
                 renderCategoryOptions();
                 renderUserOptions();
@@ -1624,8 +1610,8 @@
                 processedCount++;
             });
 
-            // คำนวณยอดจากประวัติทั้งหมดอีกครั้งก่อนบันทึก เพื่อป้องกัน currentQty คลาดเคลื่อน
-            syncCurrentStockFromTransactions();
+            // product.currentQty ถูกปรับโดยรายการนี้โดยตรงแล้ว
+            // จากนั้นบันทึก Products.currentQty + Transactions ลง Google Sheets
             await saveDataToGoogleSheets();
             alert(`บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} สำเร็จแล้ว ${processedCount} รายการ!`);
             document.getElementById('transRemark').value = '';
