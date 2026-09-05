@@ -794,10 +794,30 @@
         // ==============================
         // คำนวณสต๊อกจริงจากยอดตั้งต้น + ประวัติรับ/เบิก
         // ==============================
+        // คำนวณยอดยกมาจริงจาก "ยอดคงเหลือปัจจุบันใน Products" และประวัติ Transactions
+        // เพื่อไม่ให้ initialQty ที่ถูกบันทึกคลาดเคลื่อนทำให้ยอดในหน้าเว็บ/Google Sheets เพี้ยน
+        // สูตร: ยอดยกมา = currentQty - (ยอดรับเข้าทั้งหมด - ยอดเบิกออกทั้งหมด)
+        // ตัวอย่าง G001: currentQty 72 และสุทธิจากประวัติ -34 => ยอดยกมา 106
         function calculateInitialQty(productId) {
             const product = products.find(p => String(p.id) === String(productId));
             if (!product) return 0;
-            return Number(product.initialQty ?? product.currentQty ?? 0) || 0;
+
+            const storedCurrent = Number(product.currentQty);
+            if (Number.isFinite(storedCurrent)) {
+                let netMovement = 0;
+                transactions.forEach(t => {
+                    if (String(t.productId) !== String(productId)) return;
+                    const qty = Number(t.qty) || 0;
+                    if (String(t.type).toUpperCase() === 'IN') netMovement += qty;
+                    else if (String(t.type).toUpperCase() === 'OUT') netMovement -= qty;
+                });
+
+                // currentQty - netMovement คือยอดก่อนเริ่มมีประวัติธุรกรรม
+                const derivedInitial = storedCurrent - netMovement;
+                if (Number.isFinite(derivedInitial)) return derivedInitial;
+            }
+
+            return Number(product.initialQty ?? 0) || 0;
         }
 
         function getTransactionTimeValue(timestamp) {
