@@ -865,6 +865,9 @@
                 renderApp();
             } catch (err) {
                 console.error('ไม่สามารถดึงข้อมูลจาก Google Sheets ได้:', err);
+                const message = err && err.message ? err.message : String(err);
+                console.error('Google Sheets URL:', GOOGLE_SCRIPT_URL);
+                alert('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้\n\n' + message + '\n\nกรุณาตรวจสอบ URL ของ Google Apps Script และการ Deploy เป็น Web App');
             } finally {
                 showLoading(false);
             }
@@ -1954,7 +1957,7 @@
             const tbody = document.getElementById('transactionTableBody');
             if (!tbody) return;
 
-            populateTransactionCategoryFilter();
+            populateTransactionFilters();
 
             if (transactions.length === 0) {
                 tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ยังไม่มีประวัติการเบิก-รับสินค้า</td></tr>`;
