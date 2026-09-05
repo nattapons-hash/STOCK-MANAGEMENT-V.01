@@ -46,7 +46,7 @@
                     🔄 รีเฟรชข้อมูล Real-time
                 </button>
                 <button onclick="exportAllToExcel()" class="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs md:text-sm transition flex items-center gap-2 shadow-sm">
-                    📊 EXPORT สต๊อกทั้งหมด
+                    📊 ส่งออกรายงานสต๊อกทั้งหมด (Excel Multi-Sheet)
                 </button>
                 <!-- บัญชีผู้ใช้งาน Dropdown: แทนปุ่มเปลี่ยนรหัสผ่านและล็อกเอาท์ -->
                 <div id="accountDropdown" class="relative">
@@ -415,10 +415,10 @@
 
             <!-- ตัวกรองเฉพาะหน้าประวัติการเบิก-รับ -->
             <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                <div class="grid grid-cols-1 md:grid-cols-[1.25fr_1.25fr_1fr_1fr_auto_auto_auto] gap-3 items-end">
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                     <div>
                         <label for="transactionCategoryFilter" class="block text-xs font-semibold text-gray-600 mb-1">หมวดหมู่สินค้า</label>
-                        <select id="transactionCategoryFilter" onchange="updateTransactionProductFilter()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                        <select id="transactionCategoryFilter" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
                             <option value="ALL">ทั้งหมด</option>
                         </select>
                     </div>
@@ -440,13 +440,18 @@
                         <input type="date" id="transactionDateTo" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
 
-                    <button type="button" onclick="searchTransactionLogs()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition whitespace-nowrap">
-                        🔎 ค้นหา
-                    </button>
-                    <button type="button" onclick="clearTransactionFilters()" class="bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition whitespace-nowrap">
-                        ล้าง
-                    </button>
-                    <button type="button" onclick="exportFilteredTransactionsToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition flex items-center gap-2 whitespace-nowrap">
+                    <div class="flex gap-2">
+                        <button type="button" onclick="searchTransactionLogs()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                            🔎 ค้นหา
+                        </button>
+                        <button type="button" onclick="clearTransactionFilters()" class="bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                            ล้าง
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-3 flex justify-end">
+                    <button type="button" onclick="exportFilteredTransactionsToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition flex items-center gap-2">
                         📊 Export ข้อมูลที่กรอง
                     </button>
                 </div>
@@ -461,7 +466,7 @@
                             <th class="p-4">รายการสินค้า</th>
                             <th class="p-4 text-center">ประเภทรายการ</th>
                             <th class="p-4 text-right">จำนวน</th>
-                            <th class="p-4 text-right">สต๊อกคงเหลือปัจจุบัน</th>
+                            <th class="p-4 text-right">สต๊อกคงเหลือ</th>
                             <th class="p-4">ผู้ทำรายการ/แผนก</th>
                             <th class="p-4">หมายเหตุ</th>
                         </tr>
@@ -794,10 +799,23 @@
             const product = products.find(p => p.id === productId);
             if (!product) return 0;
 
-            // ยอดยกมา = initialQty ที่กำหนดไว้ใน Product Master เท่านั้น
-            // ห้ามนำ Transaction มาบวก/ลบซ้ำ เพราะ Transaction จะถูกคำนวณแยกตามลำดับเวลา
-            const qty = Number(product.initialQty);
-            return Number.isFinite(qty) ? qty : (Number(product.currentQty) || 0);
+            let qty = product.initialQty !== undefined ? product.initialQty : product.currentQty;
+            const firstAuditDate = auditDates.length > 0 ? auditDates[0] : null;
+
+            transactions.forEach(t => {
+                if (t.productId === productId) {
+                    const transDateOnly = t.timestamp.split(' ')[0];
+                    if (!firstAuditDate || transDateOnly <= firstAuditDate) {
+                        if (t.type === 'IN') {
+                            qty += t.qty;
+                        } else if (t.type === 'OUT') {
+                            qty -= t.qty;
+                        }
+                    }
+                }
+            });
+
+            return qty;
         }
 
         async function saveDataToGoogleSheets() {
@@ -1860,41 +1878,19 @@
             categorySelect.innerHTML = '<option value="ALL">ทั้งหมด</option>' +
                 categories.map(category => `<option value="${escapeTransactionHtml(category)}">${escapeTransactionHtml(category)}</option>`).join('');
 
-            categorySelect.value = categories.includes(currentCategory) ? currentCategory : 'ALL';
-
-            updateTransactionProductFilter(currentProduct);
-        }
-
-        function updateTransactionProductFilter(selectedProductId = null) {
-            const categorySelect = document.getElementById('transactionCategoryFilter');
-            const productSelect = document.getElementById('transactionProductFilter');
-            if (!categorySelect || !productSelect) return;
-
-            const selectedCategory = categorySelect.value || 'ALL';
-            const currentProduct = selectedProductId !== null
-                ? String(selectedProductId)
-                : (productSelect.value || appliedTransactionFilters.productId || 'ALL');
-
-            // แสดงเฉพาะสินค้าในหมวดหมู่ที่เลือก
             const productMap = new Map();
             products.forEach(p => {
                 const id = String(p.id);
-                const category = String(p.category || 'ทั่วไป').trim();
-
-                if (selectedCategory !== 'ALL' && category !== selectedCategory) return;
                 if (!productMap.has(id)) productMap.set(id, p);
             });
 
-            // เมื่อเลือก "ทั้งหมด" ให้รวมสินค้าที่อยู่ใน Transaction แต่ไม่มีใน Product Master
-            // เฉพาะกรณีที่ไม่มีการจำกัดหมวดหมู่
-            if (selectedCategory === 'ALL') {
-                transactions.forEach(t => {
-                    const id = String(t.productId);
-                    if (!productMap.has(id)) {
-                        productMap.set(id, { id, name: t.productName || id });
-                    }
-                });
-            }
+            // รวมสินค้าที่อยู่ใน Transaction แต่ไม่มีใน Product Master ไว้ด้วย
+            transactions.forEach(t => {
+                const id = String(t.productId);
+                if (!productMap.has(id)) {
+                    productMap.set(id, { id, name: t.productName || id });
+                }
+            });
 
             const productOptions = [...productMap.values()].sort((a, b) =>
                 String(a.name || '').localeCompare(String(b.name || ''), 'th')
@@ -1907,26 +1903,8 @@
                     return `<option value="${id}">${name} (${id})</option>`;
                 }).join('');
 
-            // ถ้าสินค้าเดิมไม่อยู่ในหมวดที่เลือก ให้กลับไป "ทั้งหมด"
-            const validProduct = productOptions.some(p => String(p.id) === currentProduct);
-            productSelect.value = validProduct ? currentProduct : 'ALL';
-        }
-
-        function getFilteredTransactions() {
-            const { category, productId, dateFrom, dateTo } = appliedTransactionFilters;
-
-            return transactions.filter(t => {
-                const product = products.find(p => String(p.id) === String(t.productId));
-                const transactionCategory = String(product?.category || 'ทั่วไป').trim();
-                const dateKey = getTransactionDateKey(t.timestamp);
-
-                const categoryMatch = category === 'ALL' || transactionCategory === category;
-                const productMatch = productId === 'ALL' || String(t.productId) === String(productId);
-                const fromMatch = !dateFrom || (dateKey && dateKey >= dateFrom);
-                const toMatch = !dateTo || (dateKey && dateKey <= dateTo);
-
-                return categoryMatch && productMatch && fromMatch && toMatch;
-            });
+            categorySelect.value = categories.includes(currentCategory) ? currentCategory : 'ALL';
+            productSelect.value = productOptions.some(p => String(p.id) === currentProduct) ? currentProduct : 'ALL';
         }
 
         function getFilteredTransactions() {
@@ -1976,43 +1954,61 @@
             renderTransactionLogs();
         }
 
-        function getTransactionSortTime(timestamp) {
-            const time = new Date(timestamp).getTime();
-            return Number.isNaN(time) ? 0 : time;
+        // แปลงวัน-เวลาให้ใช้เรียงลำดับได้สม่ำเสมอ ทั้ง ISO จาก Google Sheets
+        // และรูปแบบ YYYY-MM-DD HH:mm ที่บันทึกในระบบ
+        function getTransactionEpoch(timestamp) {
+            if (!timestamp) return 0;
+            const value = String(timestamp).trim();
+
+            if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+                const d = new Date(value);
+                return isNaN(d.getTime()) ? 0 : d.getTime();
+            }
+
+            const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+            if (match) {
+                return new Date(
+                    Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+                    Number(match[4]), Number(match[5]), Number(match[6] || 0)
+                ).getTime();
+            }
+
+            const d = new Date(value);
+            return isNaN(d.getTime()) ? 0 : d.getTime();
         }
 
-        function calculateTransactionBalances() {
+        // คำนวณยอดคงเหลือหลังรายการทุกแถวจากยอดตั้งต้นของสินค้า
+        // โดยเดินรายการตามวัน-เวลาจากเก่าไปใหม่ แล้วบวก/ลบตามประเภทรายการ
+        function buildTransactionBalances() {
             const balances = new Map();
-            const grouped = {};
+            const productInitialQty = new Map();
 
-            transactions.forEach((t, sourceIndex) => {
-                const key = String(t.productId);
-                if (!grouped[key]) grouped[key] = [];
-                grouped[key].push({ transaction: t, sourceIndex, time: getTransactionSortTime(t.timestamp) });
+            products.forEach(p => {
+                const initial = Number(p.initialQty);
+                productInitialQty.set(String(p.id), Number.isFinite(initial) ? initial : 0);
             });
 
-            Object.keys(grouped).forEach(productId => {
-                const product = products.find(p => String(p.id) === productId);
-                let balance = Number(product?.initialQty);
-                if (!Number.isFinite(balance)) {
-                    balance = Number(product?.currentQty) || 0;
-                    // หากไม่มี initialQty ให้คำนวณย้อนจาก currentQty เพื่อไม่ให้ยอดปัจจุบันถูกบวกซ้ำ
-                    const totalChange = grouped[productId].reduce((sum, item) => {
-                        const q = Number(item.transaction.qty) || 0;
-                        return sum + (item.transaction.type === 'IN' ? q : -q);
-                    }, 0);
-                    balance -= totalChange;
-                }
-
-                // transactions ถูกเก็บใหม่สุดไว้ด้านหน้า ดังนั้นกรณีเวลาเท่ากัน
-                // sourceIndex มากกว่าจะเป็นรายการที่เกิดก่อนในชุดเดียวกัน
-                grouped[productId].sort((a, b) => a.time - b.time || b.sourceIndex - a.sourceIndex);
-
-                grouped[productId].forEach(item => {
-                    const qty = Number(item.transaction.qty) || 0;
-                    balance += item.transaction.type === 'IN' ? qty : -qty;
-                    balances.set(item.transaction, balance);
+            const ordered = transactions
+                .map((t, index) => ({ t, index }))
+                .sort((a, b) => {
+                    const timeDiff = getTransactionEpoch(a.t.timestamp) - getTransactionEpoch(b.t.timestamp);
+                    return timeDiff !== 0 ? timeDiff : a.index - b.index;
                 });
+
+            const running = new Map(productInitialQty);
+
+            ordered.forEach(({ t }) => {
+                const id = String(t.productId);
+                let current = running.has(id) ? Number(running.get(id)) : 0;
+                const qty = Number(t.qty) || 0;
+
+                if (t.type === 'IN') current += qty;
+                else if (t.type === 'OUT') current -= qty;
+
+                running.set(id, current);
+
+                // ใช้ object อ้างอิงเดียวกับรายการจริง เพื่อให้ค้นหา/Export ได้ตรงกัน
+                balances.set(t, current);
             });
 
             return balances;
@@ -2036,28 +2032,26 @@
                 return;
             }
 
-            // คำนวณยอดคงเหลือหลังแต่ละความเคลื่อนไหวจากยอดตั้งต้น + รับเข้า - เบิกออก
-            // ใช้ transaction ทั้งหมดในการคำนวณ เพื่อให้แม้มีการกรองวันที่ ยอดย้อนหลังยังถูกต้อง
-            const stockBalanceByTransaction = calculateTransactionBalances();
+            const balances = buildTransactionBalances();
 
-            tbody.innerHTML = filteredTransactions.map((t, index) => `
+            tbody.innerHTML = filteredTransactions.map(t => `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
-                    <td class="p-4 font-semibold text-gray-700">${t.productId}</td>
-                    <td class="p-4 font-medium text-gray-800">${t.productName}</td>
+                    <td class="p-4 font-semibold text-gray-700">${escapeTransactionHtml(t.productId)}</td>
+                    <td class="p-4 font-medium text-gray-800">${escapeTransactionHtml(t.productName)}</td>
                     <td class="p-4 text-center">
                         <span class="px-2.5 py-1 rounded-full text-xs font-bold ${t.type === 'OUT' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">
                             ${t.type === 'OUT' ? '📤 เบิกออก' : '📥 รับเข้า'}
                         </span>
                     </td>
                     <td class="p-4 text-right font-bold ${t.type === 'OUT' ? 'text-red-600' : 'text-emerald-600'}">
-                        ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${t.unit}
+                        ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${escapeTransactionHtml(t.unit)}
                     </td>
-                    <td class="p-4 text-right font-bold text-gray-900">
-                        ${(() => { const balance = stockBalanceByTransaction.get(t); return balance !== undefined ? `${balance} ${t.unit || ''}` : ''; })()}
+                    <td class="p-4 text-right font-bold text-emerald-700 bg-emerald-50/30">
+                        ${balances.get(t)} ${escapeTransactionHtml(t.unit)}
                     </td>
-                    <td class="p-4 text-gray-700 font-medium">${t.user}</td>
-                    <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
+                    <td class="p-4 text-gray-700 font-medium">${escapeTransactionHtml(t.user)}</td>
+                    <td class="p-4 text-gray-500 text-xs">${escapeTransactionHtml(t.remark)}</td>
                 </tr>
             `).join('');
         }
@@ -2073,10 +2067,9 @@
                 return alert('ไม่พบข้อมูลตามตัวกรอง กรุณากดค้นหาใหม่');
             }
 
-            // Export ยอดคงเหลือหลังแต่ละความเคลื่อนไหวของทุกแถว
-            const stockBalanceByTransaction = calculateTransactionBalances();
+            const balances = buildTransactionBalances();
 
-            const exportData = filteredTransactions.map((t) => ({
+            const exportData = filteredTransactions.map(t => ({
                 'วัน-เวลา': formatTransactionTimestamp(t.timestamp),
                 'Mat.No.': t.productId,
                 'ชื่อสินค้า': t.productName,
@@ -2084,7 +2077,7 @@
                 'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
                 'จำนวน': t.qty,
                 'หน่วย': t.unit,
-                'สต๊อกคงเหลือปัจจุบัน': stockBalanceByTransaction.get(t) ?? '',
+                'สต๊อกคงเหลือหลังรายการ': balances.get(t),
                 'ผู้ทำรายการ/แผนก': t.user,
                 'หมายเหตุ': t.remark
             }));
