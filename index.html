@@ -413,6 +413,32 @@
                 <p class="text-xs text-gray-400 mt-1">แสดงประวัติการเบิกออกและรับเข้าสินค้าประจำวัน เรียงจากล่าสุดไปเก่าสุด</p>
             </div>
 
+            <!-- ตัวกรองเฉพาะหน้าประวัติการเบิก-รับ -->
+            <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <div>
+                        <label for="transactionCategoryFilter" class="block text-xs font-semibold text-gray-600 mb-1">หมวดหมู่สินค้า</label>
+                        <select id="transactionCategoryFilter" onchange="renderTransactionLogs()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="ALL">ทั้งหมด</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="transactionDateFrom" class="block text-xs font-semibold text-gray-600 mb-1">ตั้งแต่วันที่</label>
+                        <input type="date" id="transactionDateFrom" onchange="renderTransactionLogs()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div>
+                        <label for="transactionDateTo" class="block text-xs font-semibold text-gray-600 mb-1">ถึงวันที่</label>
+                        <input type="date" id="transactionDateTo" onchange="renderTransactionLogs()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <button type="button" onclick="clearTransactionFilters()" class="w-full md:w-auto bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                        ล้างตัวกรอง
+                    </button>
+                </div>
+            </div>
+
             <div class="overflow-x-auto border border-gray-200 rounded-xl">
                 <table class="w-full text-left border-collapse">
                     <thead class="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs font-semibold uppercase">
@@ -1771,16 +1797,98 @@
             return value;
         }
 
+        function getTransactionDateKey(timestamp) {
+            if (!timestamp) return '';
+
+            const value = String(timestamp).trim();
+
+            // ISO timestamp: convert UTC to Thailand time before filtering by date.
+            if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+                const d = new Date(value);
+                if (!isNaN(d.getTime())) {
+                    const parts = new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'Asia/Bangkok',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                    }).formatToParts(d);
+
+                    const year = parts.find(p => p.type === 'year')?.value;
+                    const month = parts.find(p => p.type === 'month')?.value;
+                    const day = parts.find(p => p.type === 'day')?.value;
+                    if (year && month && day) return `${year}-${month}-${day}`;
+                }
+            }
+
+            // Local timestamp fallback: YYYY-MM-DD HH:mm...
+            const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T]/);
+            return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+        }
+
+        function populateTransactionCategoryFilter() {
+            const select = document.getElementById('transactionCategoryFilter');
+            if (!select) return;
+
+            const currentValue = select.value || 'ALL';
+            const categories = [...new Set(
+                products.map(p => String(p.category || 'ทั่วไป').trim()).filter(Boolean)
+            )].sort((a, b) => a.localeCompare(b, 'th'));
+
+            select.innerHTML = '<option value="ALL">ทั้งหมด</option>' +
+                categories.map(category => `<option value="${category.replace(/"/g, '&quot;')}">${category}</option>`).join('');
+
+            if (categories.includes(currentValue)) {
+                select.value = currentValue;
+            } else {
+                select.value = 'ALL';
+            }
+        }
+
+        function clearTransactionFilters() {
+            const category = document.getElementById('transactionCategoryFilter');
+            const from = document.getElementById('transactionDateFrom');
+            const to = document.getElementById('transactionDateTo');
+
+            if (category) category.value = 'ALL';
+            if (from) from.value = '';
+            if (to) to.value = '';
+
+            renderTransactionLogs();
+        }
+
         function renderTransactionLogs() {
             const tbody = document.getElementById('transactionTableBody');
             if (!tbody) return;
+
+            populateTransactionCategoryFilter();
 
             if (transactions.length === 0) {
                 tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ยังไม่มีประวัติการเบิก-รับสินค้า</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = transactions.map(t => `
+            const categoryFilter = document.getElementById('transactionCategoryFilter')?.value || 'ALL';
+            const dateFrom = document.getElementById('transactionDateFrom')?.value || '';
+            const dateTo = document.getElementById('transactionDateTo')?.value || '';
+
+            const filteredTransactions = transactions.filter(t => {
+                const product = products.find(p => String(p.id) === String(t.productId));
+                const category = String(product?.category || 'ทั่วไป').trim();
+                const dateKey = getTransactionDateKey(t.timestamp);
+
+                const categoryMatch = categoryFilter === 'ALL' || category === categoryFilter;
+                const fromMatch = !dateFrom || (dateKey && dateKey >= dateFrom);
+                const toMatch = !dateTo || (dateKey && dateKey <= dateTo);
+
+                return categoryMatch && fromMatch && toMatch;
+            });
+
+            if (filteredTransactions.length === 0) {
+                tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ไม่พบประวัติที่ตรงกับตัวกรอง</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filteredTransactions.map(t => `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
                     <td class="p-4 font-semibold text-gray-700">${t.productId}</td>
