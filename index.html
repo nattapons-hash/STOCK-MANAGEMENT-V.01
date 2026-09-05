@@ -638,8 +638,9 @@
         let isDeleteMode = false;
 
         /* --- ฟังก์ชันล็อกเอาท์และเปลี่ยนรหัสผ่าน --- */
-        function logout() {
+        async function logout() {
             if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
+                await logActivity('ออกจากระบบ', 'ผู้ใช้งานออกจากระบบ Dashboard');
                 localStorage.removeItem("isLoggedIn");
                 localStorage.removeItem("currentUser");
                 window.location.href = "login.html";
@@ -874,6 +875,67 @@
             return calculateTransactionBalances();
         }
 
+
+        // ==================== ACTIVITY LOGS ====================
+        // บันทึกผู้ใช้งาน + เครื่อง/เบราว์เซอร์อัตโนมัติทุกครั้งที่มีการดำเนินการ
+        let activityDeviceId = localStorage.getItem('activityDeviceId');
+        if (!activityDeviceId) {
+            const seed = `${Date.now()}-${Math.random()}-${navigator.userAgent}`;
+            let hash = 2166136261;
+            for (let i = 0; i < seed.length; i++) {
+                hash ^= seed.charCodeAt(i);
+                hash = Math.imul(hash, 16777619);
+            }
+            activityDeviceId = 'DEV-' + (hash >>> 0).toString(16).toUpperCase().padStart(8, '0');
+            localStorage.setItem('activityDeviceId', activityDeviceId);
+        }
+
+        function getActivityUser() {
+            return localStorage.getItem('currentUser') || 'ไม่ทราบผู้ใช้งาน';
+        }
+
+        function getDeviceInfo() {
+            const ua = navigator.userAgent || '';
+            let os = 'Unknown';
+            if (/Windows NT/i.test(ua)) os = 'Windows';
+            else if (/Android/i.test(ua)) os = 'Android';
+            else if (/iPhone|iPad|iPod/i.test(ua)) os = 'iOS';
+            else if (/Mac OS X/i.test(ua)) os = 'macOS';
+            else if (/Linux/i.test(ua)) os = 'Linux';
+
+            let browser = 'Unknown';
+            if (/Edg\//i.test(ua)) browser = 'Microsoft Edge';
+            else if (/Chrome\//i.test(ua)) browser = 'Google Chrome';
+            else if (/Firefox\//i.test(ua)) browser = 'Mozilla Firefox';
+            else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser = 'Safari';
+
+            return `${os} / ${browser}`;
+        }
+
+        async function logActivity(action, details = '') {
+            try {
+                const payload = {
+                    activityLog: {
+                        timestamp: new Date().toISOString(),
+                        user: getActivityUser(),
+                        deviceId: activityDeviceId,
+                        deviceInfo: getDeviceInfo(),
+                        action: String(action || 'ดำเนินการ'),
+                        details: String(details || '')
+                    }
+                };
+
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                    keepalive: true
+                });
+            } catch (err) {
+                // Activity log ห้ามทำให้การทำงานหลักของระบบล้ม
+                console.warn('ไม่สามารถบันทึก ActivityLogs ได้:', err);
+            }
+        }
+
         async function saveDataToGoogleSheets() {
             showLoading(true);
             const appData = {
@@ -980,6 +1042,7 @@
                 });
 
                 await saveDataToGoogleSheets();
+                await logActivity('ลบสินค้า', `ลบสินค้า ${idsToDelete.join(', ')}`);
                 toggleDeleteMode(false); // ปิดโหมดลบเมื่อลบเสร็จ
                 renderApp();
                 alert(`ลบรายการสินค้าเรียบร้อยแล้ว ${idsToDelete.length} รายการ`);
@@ -1001,6 +1064,7 @@
                 });
 
                 await saveDataToGoogleSheets();
+                await logActivity('ลบสินค้า', `ลบ ${product.id} ${product.name}`);
                 renderApp();
                 alert(`ลบรายการสินค้า ${product.name} เรียบร้อยแล้ว`);
             }
@@ -1039,6 +1103,7 @@
             }
 
             await saveDataToGoogleSheets();
+            await logActivity('บันทึกสินค้า', `บันทึก/แก้ไขสินค้า ${id} ${name} | จำนวน ${qty} ${unit}`);
             alert('บันทึกข้อมูลสินค้าเรียบร้อยแล้ว!');
             document.getElementById('addProductForm').reset();
             renderApp();
@@ -1112,6 +1177,7 @@
                     }
 
                     await saveDataToGoogleSheets();
+                    await logActivity('นำเข้าสินค้าจาก Excel', `เพิ่ม ${addedCount} รายการ / อัปเดต ${updatedCount} รายการ`);
                     renderCategoryOptions();
                     renderApp();
                     alert(`อัปโหลดไฟล์สำเร็จ! เพิ่มสินค้าใหม่ ${addedCount} รายการ และอัปเดตสินค้าเดิม ${updatedCount} รายการ`);
@@ -1142,6 +1208,7 @@
             if (val && !categories.includes(val)) {
                 categories.push(val);
                 await saveDataToGoogleSheets();
+                await logActivity('เพิ่มหมวดหมู่', `เพิ่มหมวดหมู่ ${val}`);
                 renderCategoryOptions();
                 renderCategoryModalList();
                 renderApp();
@@ -1157,6 +1224,7 @@
                     if (p.category === catName) p.category = categories[0];
                 });
                 await saveDataToGoogleSheets();
+                await logActivity('ลบหมวดหมู่', `ลบหมวดหมู่ ${catName} และย้ายสินค้าไปหมวด ${categories[0]}`);
                 renderCategoryOptions();
                 renderCategoryModalList();
                 renderApp();
@@ -1226,6 +1294,7 @@
             if (val && !users.includes(val)) {
                 users.push(val);
                 await saveDataToGoogleSheets();
+                await logActivity('เพิ่มผู้ใช้งาน', `เพิ่มผู้ใช้งาน ${val}`);
                 renderUserOptions();
                 renderUserModalList();
                 document.getElementById('newUserInput').value = '';
@@ -1235,6 +1304,7 @@
             if (users.length <= 1) return alert('ต้องมีรายชื่ออย่างน้อย 1 รายชื่อ');
             users = users.filter(u => u !== name);
             await saveDataToGoogleSheets();
+            await logActivity('ลบผู้ใช้งาน', `ลบผู้ใช้งาน ${name}`);
             renderUserOptions();
             renderUserModalList();
         }
@@ -1269,6 +1339,7 @@
             if (val && !auditUsers.includes(val)) {
                 auditUsers.push(val);
                 await saveDataToGoogleSheets();
+                await logActivity('เพิ่มผู้ตรวจนับ', `เพิ่มผู้ตรวจนับ ${val}`);
                 renderAuditUserOptions();
                 renderAuditUserModalList();
                 document.getElementById('newAuditUserInput').value = '';
@@ -1278,6 +1349,7 @@
             if (auditUsers.length <= 1) return alert('ต้องมีรายชื่ออย่างน้อย 1 รายชื่อ');
             auditUsers = auditUsers.filter(u => u !== name);
             await saveDataToGoogleSheets();
+            await logActivity('ลบผู้ตรวจนับ', `ลบผู้ตรวจนับ ${name}`);
             renderAuditUserOptions();
             renderAuditUserModalList();
         }
@@ -1342,6 +1414,7 @@
             });
 
             await saveDataToGoogleSheets();
+            await logActivity('ลบ/ปรับผลตรวจนับ', `ลบผลตรวจนับวันที่ ${dateToDelete || ''} และปรับยอดสินค้าที่เกี่ยวข้อง`);
             closeDeleteAuditModal();
             renderApp();
         }
@@ -1613,6 +1686,13 @@
             // product.currentQty ถูกปรับโดยรายการนี้โดยตรงแล้ว
             // จากนั้นบันทึก Products.currentQty + Transactions ลง Google Sheets
             await saveDataToGoogleSheets();
+            const transactionItems = Array.from(checkboxes).map(cb => {
+                const p = products.find(x => x.id === cb.value);
+                const q = document.getElementById(`qty-${cb.value}`)?.value || '';
+                return `${cb.value} ${p ? p.name : ''} ${q}`;
+            }).join(', ');
+            await logActivity(transType === 'OUT' ? 'เบิกสินค้า' : 'รับสินค้า',
+                `${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} ${processedCount} รายการ | ${transactionItems}`);
             alert(`บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} สำเร็จแล้ว ${processedCount} รายการ!`);
             document.getElementById('transRemark').value = '';
             renderApp();
@@ -1681,6 +1761,7 @@
             });
 
             await saveDataToGoogleSheets();
+            await logActivity('บันทึกการตรวจนับ', `บันทึกผลตรวจนับวันที่ ${date} โดย ${auditor}`);
             alert(`ลงบันทึกการตรวจนับประจำวันที่ ${date} เข้าสู่ระบบ Matrix เรียบร้อยแล้ว!`);
             switchTab('matrix');
         }
@@ -1844,6 +1925,7 @@
             if (product) {
                 product.safetyStock = val;
                 await saveDataToGoogleSheets();
+                await logActivity('แก้ไข Safety Stock', `สินค้า ${product.id} ${product.name} | Safety Stock = ${val} ${product.unit}`);
                 renderApp();
                 closeSafetyModal();
             }
@@ -2113,7 +2195,8 @@
             }).join('');
         }
 
-        function exportFilteredTransactionsToExcel() {
+        async function exportFilteredTransactionsToExcel() {
+            await logActivity('Export ประวัติการเบิก-รับ', 'Export ข้อมูลตามตัวกรองปัจจุบัน');
             if (transactions.length === 0) {
                 return alert('ยังไม่มีข้อมูลประวัติการเบิก-รับสินค้าให้ส่งออก');
             }
