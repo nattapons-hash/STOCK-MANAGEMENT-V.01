@@ -2007,7 +2007,28 @@
                 return;
             }
 
-            tbody.innerHTML = filteredTransactions.map(t => `
+            // แสดงสต๊อกคงเหลือปัจจุบันเฉพาะแถวความเคลื่อนไหวล่าสุดของสินค้าแต่ละรายการ
+            const latestTransactionKeys = new Set();
+            filteredTransactions.forEach((t, index) => {
+                const productKey = String(t.productId);
+                const currentTime = new Date(t.timestamp).getTime();
+                const previousIndex = latestTransactionKeys.has(productKey) ? -1 : undefined;
+                if (previousIndex === undefined) {
+                    latestTransactionKeys.add(productKey + '::' + index);
+                }
+            });
+
+            // หาแถวล่าสุดจริงของแต่ละสินค้า โดยไม่ขึ้นกับลำดับข้อมูลต้นทาง
+            const latestByProduct = {};
+            filteredTransactions.forEach((t, index) => {
+                const key = String(t.productId);
+                const time = new Date(t.timestamp).getTime();
+                if (!latestByProduct[key] || time > latestByProduct[key].time) {
+                    latestByProduct[key] = { index, time };
+                }
+            });
+
+            tbody.innerHTML = filteredTransactions.map((t, index) => `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
                     <td class="p-4 font-semibold text-gray-700">${t.productId}</td>
@@ -2021,7 +2042,7 @@
                         ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${t.unit}
                     </td>
                     <td class="p-4 text-right font-bold text-gray-900">
-                        ${(() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? `${p.currentQty} ${p.unit || t.unit || ''}` : '-'; })()}
+                        ${latestByProduct[String(t.productId)]?.index === index ? (() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? `${p.currentQty} ${p.unit || t.unit || ''}` : '-'; })() : ''}
                     </td>
                     <td class="p-4 text-gray-700 font-medium">${t.user}</td>
                     <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
@@ -2040,7 +2061,17 @@
                 return alert('ไม่พบข้อมูลตามตัวกรอง กรุณากดค้นหาใหม่');
             }
 
-            const exportData = filteredTransactions.map(t => ({
+            // Export สต๊อกคงเหลือเฉพาะแถวความเคลื่อนไหวล่าสุดของสินค้าแต่ละรายการ
+            const latestExportByProduct = {};
+            filteredTransactions.forEach((t, index) => {
+                const key = String(t.productId);
+                const time = new Date(t.timestamp).getTime();
+                if (!latestExportByProduct[key] || time > latestExportByProduct[key].time) {
+                    latestExportByProduct[key] = { index, time };
+                }
+            });
+
+            const exportData = filteredTransactions.map((t, index) => ({
                 'วัน-เวลา': formatTransactionTimestamp(t.timestamp),
                 'Mat.No.': t.productId,
                 'ชื่อสินค้า': t.productName,
@@ -2048,7 +2079,7 @@
                 'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
                 'จำนวน': t.qty,
                 'หน่วย': t.unit,
-                'สต๊อกคงเหลือปัจจุบัน': (() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? p.currentQty : ''; })(),
+                'สต๊อกคงเหลือปัจจุบัน': latestExportByProduct[String(t.productId)]?.index === index ? (() => { const p = products.find(p => String(p.id) === String(t.productId)); return p ? p.currentQty : ''; })() : '',
                 'ผู้ทำรายการ/แผนก': t.user,
                 'หมายเหตุ': t.remark
             }));
