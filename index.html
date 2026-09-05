@@ -794,23 +794,10 @@
             const product = products.find(p => p.id === productId);
             if (!product) return 0;
 
-            let qty = product.initialQty !== undefined ? product.initialQty : product.currentQty;
-            const firstAuditDate = auditDates.length > 0 ? auditDates[0] : null;
-
-            transactions.forEach(t => {
-                if (t.productId === productId) {
-                    const transDateOnly = t.timestamp.split(' ')[0];
-                    if (!firstAuditDate || transDateOnly <= firstAuditDate) {
-                        if (t.type === 'IN') {
-                            qty += t.qty;
-                        } else if (t.type === 'OUT') {
-                            qty -= t.qty;
-                        }
-                    }
-                }
-            });
-
-            return qty;
+            // ยอดยกมา = initialQty ที่กำหนดไว้ใน Product Master เท่านั้น
+            // ห้ามนำ Transaction มาบวก/ลบซ้ำ เพราะ Transaction จะถูกคำนวณแยกตามลำดับเวลา
+            const qty = Number(product.initialQty);
+            return Number.isFinite(qty) ? qty : (Number(product.currentQty) || 0);
         }
 
         async function saveDataToGoogleSheets() {
@@ -2053,17 +2040,6 @@
             // ใช้ transaction ทั้งหมดในการคำนวณ เพื่อให้แม้มีการกรองวันที่ ยอดย้อนหลังยังถูกต้อง
             const stockBalanceByTransaction = calculateTransactionBalances();
 
-            // แสดงยอดคงเหลือเฉพาะแถวความเคลื่อนไหวล่าสุดของสินค้าแต่ละรายการ
-            const latestByProduct = {};
-            filteredTransactions.forEach((t, index) => {
-                const key = String(t.productId);
-                const time = getTransactionSortTime(t.timestamp);
-                if (!latestByProduct[key] || time > latestByProduct[key].time ||
-                    (time === latestByProduct[key].time && index < latestByProduct[key].index)) {
-                    latestByProduct[key] = { index, time };
-                }
-            });
-
             tbody.innerHTML = filteredTransactions.map((t, index) => `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
@@ -2078,7 +2054,7 @@
                         ${t.type === 'OUT' ? '-' : '+'}${t.qty} ${t.unit}
                     </td>
                     <td class="p-4 text-right font-bold text-gray-900">
-                        ${latestByProduct[String(t.productId)]?.index === index ? (() => { const balance = stockBalanceByTransaction.get(t); return balance !== undefined ? `${balance} ${t.unit || ''}` : ''; })() : ''}
+                        ${(() => { const balance = stockBalanceByTransaction.get(t); return balance !== undefined ? `${balance} ${t.unit || ''}` : ''; })()}
                     </td>
                     <td class="p-4 text-gray-700 font-medium">${t.user}</td>
                     <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
@@ -2097,19 +2073,10 @@
                 return alert('ไม่พบข้อมูลตามตัวกรอง กรุณากดค้นหาใหม่');
             }
 
-            // Export ใช้ยอดคงเหลือหลังแต่ละความเคลื่อนไหว และแสดงเฉพาะแถวล่าสุดของสินค้าแต่ละรายการ
+            // Export ยอดคงเหลือหลังแต่ละความเคลื่อนไหวของทุกแถว
             const stockBalanceByTransaction = calculateTransactionBalances();
-            const latestExportByProduct = {};
-            filteredTransactions.forEach((t, index) => {
-                const key = String(t.productId);
-                const time = getTransactionSortTime(t.timestamp);
-                if (!latestExportByProduct[key] || time > latestExportByProduct[key].time ||
-                    (time === latestExportByProduct[key].time && index < latestExportByProduct[key].index)) {
-                    latestExportByProduct[key] = { index, time };
-                }
-            });
 
-            const exportData = filteredTransactions.map((t, index) => ({
+            const exportData = filteredTransactions.map((t) => ({
                 'วัน-เวลา': formatTransactionTimestamp(t.timestamp),
                 'Mat.No.': t.productId,
                 'ชื่อสินค้า': t.productName,
@@ -2117,7 +2084,7 @@
                 'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
                 'จำนวน': t.qty,
                 'หน่วย': t.unit,
-                'สต๊อกคงเหลือปัจจุบัน': latestExportByProduct[String(t.productId)]?.index === index ? (stockBalanceByTransaction.get(t) ?? '') : '',
+                'สต๊อกคงเหลือปัจจุบัน': stockBalanceByTransaction.get(t) ?? '',
                 'ผู้ทำรายการ/แผนก': t.user,
                 'หมายเหตุ': t.remark
             }));
