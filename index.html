@@ -799,7 +799,18 @@
             const product = products.find(p => p.id === productId);
             if (!product) return 0;
 
-            let qty = product.initialQty !== undefined ? product.initialQty : product.currentQty;
+            // ยอดตั้งต้นที่แท้จริง = ยอดปัจจุบัน - ผลรวมรายการทั้งหมด
+            // เพื่อไม่ให้ initialQty เก่าที่เคยถูกเขียนทับทำให้ยอดยกมาผิด
+            const current = Number(product.currentQty);
+            let net = 0;
+            transactions.forEach(t => {
+                if (String(t.productId) === String(productId)) {
+                    const q = Number(t.qty) || 0;
+                    net += t.type === 'IN' ? q : (t.type === 'OUT' ? -q : 0);
+                }
+            });
+            let qty = Number.isFinite(current) ? current - net :
+                (product.initialQty !== undefined ? Number(product.initialQty) : 0);
             const firstAuditDate = auditDates.length > 0 ? auditDates[0] : null;
 
             transactions.forEach(t => {
@@ -963,8 +974,8 @@
                 if (!confirm(`พบรหัสสินค้า ${id} ในระบบแล้ว คุณต้องการอัปเดตข้อมูลสินค้าเดิมหรือไม่?`)) return;
                 products[existingIndex].name = name;
                 products[existingIndex].category = category;
+                // อัปเดตเฉพาะยอดคงเหลือปัจจุบัน ห้ามเขียนทับยอดตั้งต้น
                 products[existingIndex].currentQty = qty;
-                products[existingIndex].initialQty = qty;
                 products[existingIndex].safetyStock = safety;
                 products[existingIndex].unit = unit;
             } else {
@@ -1983,9 +1994,30 @@
             const balances = new Map();
             const productInitialQty = new Map();
 
+            // คำนวณยอดตั้งต้นจาก "ยอดคงเหลือปัจจุบัน - ผลรวมรายการทั้งหมด"
+            // เพื่อไม่ให้ค่า initialQty ที่เคยถูกเขียนทับทำให้ยอดย้อนหลังผิด
+            const netByProduct = new Map();
+            transactions.forEach(t => {
+                const id = String(t.productId);
+                const qty = Number(t.qty) || 0;
+                const delta = t.type === 'IN' ? qty : (t.type === 'OUT' ? -qty : 0);
+                netByProduct.set(id, (netByProduct.get(id) || 0) + delta);
+            });
+
             products.forEach(p => {
-                const initial = Number(p.initialQty);
-                productInitialQty.set(String(p.id), Number.isFinite(initial) ? initial : 0);
+                const id = String(p.id);
+                const current = Number(p.currentQty);
+                const storedInitial = Number(p.initialQty);
+                const net = Number(netByProduct.get(id) || 0);
+
+                // ถ้ามี currentQty ที่เป็นตัวเลข ให้ใช้เป็นแหล่งอ้างอิง
+                // เพราะ currentQty = initialQty + net ของธุรกรรมทั้งหมด
+                let initial = Number.isFinite(current)
+                    ? current - net
+                    : storedInitial;
+
+                if (!Number.isFinite(initial)) initial = 0;
+                productInitialQty.set(id, initial);
             });
 
             const ordered = transactions
