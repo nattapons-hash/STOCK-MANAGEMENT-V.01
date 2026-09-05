@@ -415,26 +415,44 @@
 
             <!-- ตัวกรองเฉพาะหน้าประวัติการเบิก-รับ -->
             <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                     <div>
                         <label for="transactionCategoryFilter" class="block text-xs font-semibold text-gray-600 mb-1">หมวดหมู่สินค้า</label>
-                        <select id="transactionCategoryFilter" onchange="renderTransactionLogs()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                        <select id="transactionCategoryFilter" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="ALL">ทั้งหมด</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="transactionProductFilter" class="block text-xs font-semibold text-gray-600 mb-1">สินค้า</label>
+                        <select id="transactionProductFilter" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
                             <option value="ALL">ทั้งหมด</option>
                         </select>
                     </div>
 
                     <div>
                         <label for="transactionDateFrom" class="block text-xs font-semibold text-gray-600 mb-1">ตั้งแต่วันที่</label>
-                        <input type="date" id="transactionDateFrom" onchange="renderTransactionLogs()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                        <input type="date" id="transactionDateFrom" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
 
                     <div>
                         <label for="transactionDateTo" class="block text-xs font-semibold text-gray-600 mb-1">ถึงวันที่</label>
-                        <input type="date" id="transactionDateTo" onchange="renderTransactionLogs()" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
+                        <input type="date" id="transactionDateTo" class="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
 
-                    <button type="button" onclick="clearTransactionFilters()" class="w-full md:w-auto bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
-                        ล้างตัวกรอง
+                    <div class="flex gap-2">
+                        <button type="button" onclick="searchTransactionLogs()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                            🔎 ค้นหา
+                        </button>
+                        <button type="button" onclick="clearTransactionFilters()" class="bg-gray-700 hover:bg-gray-800 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition">
+                            ล้าง
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-3 flex justify-end">
+                    <button type="button" onclick="exportFilteredTransactionsToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2.5 rounded-xl text-sm transition flex items-center gap-2">
+                        📊 Export ข้อมูลที่กรอง
                     </button>
                 </div>
             </div>
@@ -1825,34 +1843,110 @@
             return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
         }
 
-        function populateTransactionCategoryFilter() {
-            const select = document.getElementById('transactionCategoryFilter');
-            if (!select) return;
+        let appliedTransactionFilters = {
+            category: 'ALL',
+            productId: 'ALL',
+            dateFrom: '',
+            dateTo: ''
+        };
 
-            const currentValue = select.value || 'ALL';
+        function escapeTransactionHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function populateTransactionFilters() {
+            const categorySelect = document.getElementById('transactionCategoryFilter');
+            const productSelect = document.getElementById('transactionProductFilter');
+            if (!categorySelect || !productSelect) return;
+
+            const currentCategory = categorySelect.value || appliedTransactionFilters.category || 'ALL';
+            const currentProduct = productSelect.value || appliedTransactionFilters.productId || 'ALL';
+
             const categories = [...new Set(
                 products.map(p => String(p.category || 'ทั่วไป').trim()).filter(Boolean)
             )].sort((a, b) => a.localeCompare(b, 'th'));
 
-            select.innerHTML = '<option value="ALL">ทั้งหมด</option>' +
-                categories.map(category => `<option value="${category.replace(/"/g, '&quot;')}">${category}</option>`).join('');
+            categorySelect.innerHTML = '<option value="ALL">ทั้งหมด</option>' +
+                categories.map(category => `<option value="${escapeTransactionHtml(category)}">${escapeTransactionHtml(category)}</option>`).join('');
 
-            if (categories.includes(currentValue)) {
-                select.value = currentValue;
-            } else {
-                select.value = 'ALL';
+            const productMap = new Map();
+            products.forEach(p => {
+                const id = String(p.id);
+                if (!productMap.has(id)) productMap.set(id, p);
+            });
+
+            // รวมสินค้าที่อยู่ใน Transaction แต่ไม่มีใน Product Master ไว้ด้วย
+            transactions.forEach(t => {
+                const id = String(t.productId);
+                if (!productMap.has(id)) {
+                    productMap.set(id, { id, name: t.productName || id });
+                }
+            });
+
+            const productOptions = [...productMap.values()].sort((a, b) =>
+                String(a.name || '').localeCompare(String(b.name || ''), 'th')
+            );
+
+            productSelect.innerHTML = '<option value="ALL">ทั้งหมด</option>' +
+                productOptions.map(p => {
+                    const id = escapeTransactionHtml(p.id);
+                    const name = escapeTransactionHtml(p.name || p.id);
+                    return `<option value="${id}">${name} (${id})</option>`;
+                }).join('');
+
+            categorySelect.value = categories.includes(currentCategory) ? currentCategory : 'ALL';
+            productSelect.value = productOptions.some(p => String(p.id) === currentProduct) ? currentProduct : 'ALL';
+        }
+
+        function getFilteredTransactions() {
+            const { category, productId, dateFrom, dateTo } = appliedTransactionFilters;
+
+            return transactions.filter(t => {
+                const product = products.find(p => String(p.id) === String(t.productId));
+                const transactionCategory = String(product?.category || 'ทั่วไป').trim();
+                const dateKey = getTransactionDateKey(t.timestamp);
+
+                const categoryMatch = category === 'ALL' || transactionCategory === category;
+                const productMatch = productId === 'ALL' || String(t.productId) === String(productId);
+                const fromMatch = !dateFrom || (dateKey && dateKey >= dateFrom);
+                const toMatch = !dateTo || (dateKey && dateKey <= dateTo);
+
+                return categoryMatch && productMatch && fromMatch && toMatch;
+            });
+        }
+
+        function searchTransactionLogs() {
+            const category = document.getElementById('transactionCategoryFilter')?.value || 'ALL';
+            const productId = document.getElementById('transactionProductFilter')?.value || 'ALL';
+            const dateFrom = document.getElementById('transactionDateFrom')?.value || '';
+            const dateTo = document.getElementById('transactionDateTo')?.value || '';
+
+            if (dateFrom && dateTo && dateFrom > dateTo) {
+                alert('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
+                return;
             }
+
+            appliedTransactionFilters = { category, productId, dateFrom, dateTo };
+            renderTransactionLogs();
         }
 
         function clearTransactionFilters() {
             const category = document.getElementById('transactionCategoryFilter');
+            const product = document.getElementById('transactionProductFilter');
             const from = document.getElementById('transactionDateFrom');
             const to = document.getElementById('transactionDateTo');
 
             if (category) category.value = 'ALL';
+            if (product) product.value = 'ALL';
             if (from) from.value = '';
             if (to) to.value = '';
 
+            appliedTransactionFilters = { category: 'ALL', productId: 'ALL', dateFrom: '', dateTo: '' };
             renderTransactionLogs();
         }
 
@@ -1867,21 +1961,7 @@
                 return;
             }
 
-            const categoryFilter = document.getElementById('transactionCategoryFilter')?.value || 'ALL';
-            const dateFrom = document.getElementById('transactionDateFrom')?.value || '';
-            const dateTo = document.getElementById('transactionDateTo')?.value || '';
-
-            const filteredTransactions = transactions.filter(t => {
-                const product = products.find(p => String(p.id) === String(t.productId));
-                const category = String(product?.category || 'ทั่วไป').trim();
-                const dateKey = getTransactionDateKey(t.timestamp);
-
-                const categoryMatch = categoryFilter === 'ALL' || category === categoryFilter;
-                const fromMatch = !dateFrom || (dateKey && dateKey >= dateFrom);
-                const toMatch = !dateTo || (dateKey && dateKey <= dateTo);
-
-                return categoryMatch && fromMatch && toMatch;
-            });
+            const filteredTransactions = getFilteredTransactions();
 
             if (filteredTransactions.length === 0) {
                 tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="7">ไม่พบประวัติที่ตรงกับตัวกรอง</td></tr>`;
@@ -1905,6 +1985,45 @@
                     <td class="p-4 text-gray-500 text-xs">${t.remark}</td>
                 </tr>
             `).join('');
+        }
+
+
+        function exportFilteredTransactionsToExcel() {
+            if (transactions.length === 0) {
+                return alert('ยังไม่มีข้อมูลประวัติการเบิก-รับสินค้าให้ส่งออก');
+            }
+
+            const filteredTransactions = getFilteredTransactions();
+            if (filteredTransactions.length === 0) {
+                return alert('ไม่พบข้อมูลตามตัวกรอง กรุณากดค้นหาใหม่');
+            }
+
+            const exportData = filteredTransactions.map(t => ({
+                'วัน-เวลา': formatTransactionTimestamp(t.timestamp),
+                'Mat.No.': t.productId,
+                'ชื่อสินค้า': t.productName,
+                'หมวดหมู่': products.find(p => String(p.id) === String(t.productId))?.category || 'ทั่วไป',
+                'ประเภทรายการ': t.type === 'OUT' ? 'เบิกออก' : 'รับเข้า',
+                'จำนวน': t.qty,
+                'หน่วย': t.unit,
+                'ผู้ทำรายการ/แผนก': t.user,
+                'หมายเหตุ': t.remark
+            }));
+
+            const workbook = XLSX.utils.book_new();
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Transaction Logs');
+
+            const { category, productId, dateFrom, dateTo } = appliedTransactionFilters;
+            const safe = value => String(value || '').replace(/[^\w\u0E00-\u0E7F-]+/g, '_');
+            const filterPart = [
+                category !== 'ALL' ? safe(category) : 'ทุกหมวด',
+                productId !== 'ALL' ? safe(productId) : 'ทุกสินค้า',
+                dateFrom || 'เริ่มต้น',
+                dateTo || 'ปัจจุบัน'
+            ].join('_');
+
+            XLSX.writeFile(workbook, `Transaction_Logs_${filterPart}.xlsx`);
         }
 
         function exportAllToExcel(customFilename = null) {
