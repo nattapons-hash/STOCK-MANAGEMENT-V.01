@@ -640,7 +640,6 @@
         /* --- ฟังก์ชันล็อกเอาท์และเปลี่ยนรหัสผ่าน --- */
         async function logout() {
             if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
-                await logActivity('ออกจากระบบ', 'ผู้ใช้งานออกจากระบบ Dashboard');
                 localStorage.removeItem("isLoggedIn");
                 localStorage.removeItem("currentUser");
                 window.location.href = "login.html";
@@ -679,7 +678,7 @@
             document.getElementById('changePasswordModal').classList.remove('flex');
         }
 
-        function handleChangePassword(e) {
+        async function handleChangePassword(e) {
             e.preventDefault();
             const oldPass = document.getElementById('oldPassword').value;
             const newPass = document.getElementById('newPassword').value;
@@ -705,6 +704,7 @@
 
             // บันทึกรหัสผ่านใหม่
             localStorage.setItem("appPassword", newPass);
+            await logActivity('เปลี่ยนรหัสผ่านระบบ', 'ผู้ใช้งานเปลี่ยนรหัสผ่านสำเร็จ');
             alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
             closeChangePasswordModal();
         }
@@ -1177,7 +1177,7 @@
                     }
 
                     await saveDataToGoogleSheets();
-                    await logActivity('นำเข้าสินค้าจาก Excel', `เพิ่ม ${addedCount} รายการ / อัปเดต ${updatedCount} รายการ`);
+                    await logActivity('บันทึกสินค้า', `อัปโหลด Excel: เพิ่ม ${addedCount} รายการ / อัปเดต ${updatedCount} รายการ`);
                     renderCategoryOptions();
                     renderApp();
                     alert(`อัปโหลดไฟล์สำเร็จ! เพิ่มสินค้าใหม่ ${addedCount} รายการ และอัปเดตสินค้าเดิม ${updatedCount} รายการ`);
@@ -1208,7 +1208,6 @@
             if (val && !categories.includes(val)) {
                 categories.push(val);
                 await saveDataToGoogleSheets();
-                await logActivity('เพิ่มหมวดหมู่', `เพิ่มหมวดหมู่ ${val}`);
                 renderCategoryOptions();
                 renderCategoryModalList();
                 renderApp();
@@ -1224,7 +1223,6 @@
                     if (p.category === catName) p.category = categories[0];
                 });
                 await saveDataToGoogleSheets();
-                await logActivity('ลบหมวดหมู่', `ลบหมวดหมู่ ${catName} และย้ายสินค้าไปหมวด ${categories[0]}`);
                 renderCategoryOptions();
                 renderCategoryModalList();
                 renderApp();
@@ -1294,7 +1292,6 @@
             if (val && !users.includes(val)) {
                 users.push(val);
                 await saveDataToGoogleSheets();
-                await logActivity('เพิ่มผู้ใช้งาน', `เพิ่มผู้ใช้งาน ${val}`);
                 renderUserOptions();
                 renderUserModalList();
                 document.getElementById('newUserInput').value = '';
@@ -1304,7 +1301,6 @@
             if (users.length <= 1) return alert('ต้องมีรายชื่ออย่างน้อย 1 รายชื่อ');
             users = users.filter(u => u !== name);
             await saveDataToGoogleSheets();
-            await logActivity('ลบผู้ใช้งาน', `ลบผู้ใช้งาน ${name}`);
             renderUserOptions();
             renderUserModalList();
         }
@@ -1339,7 +1335,6 @@
             if (val && !auditUsers.includes(val)) {
                 auditUsers.push(val);
                 await saveDataToGoogleSheets();
-                await logActivity('เพิ่มผู้ตรวจนับ', `เพิ่มผู้ตรวจนับ ${val}`);
                 renderAuditUserOptions();
                 renderAuditUserModalList();
                 document.getElementById('newAuditUserInput').value = '';
@@ -1349,7 +1344,6 @@
             if (auditUsers.length <= 1) return alert('ต้องมีรายชื่ออย่างน้อย 1 รายชื่อ');
             auditUsers = auditUsers.filter(u => u !== name);
             await saveDataToGoogleSheets();
-            await logActivity('ลบผู้ตรวจนับ', `ลบผู้ตรวจนับ ${name}`);
             renderAuditUserOptions();
             renderAuditUserModalList();
         }
@@ -1385,8 +1379,10 @@
         async function confirmDeleteAudit() {
             if (!dateToDelete) return;
 
-            auditDates = auditDates.filter(d => d !== dateToDelete);
-            delete auditRecords[dateToDelete];
+            const deletedAuditDate = dateToDelete;
+
+            auditDates = auditDates.filter(d => d !== deletedAuditDate);
+            delete auditRecords[deletedAuditDate];
 
             products.forEach(p => {
                 let latestQty = calculateInitialQty(p.id);
@@ -1414,7 +1410,7 @@
             });
 
             await saveDataToGoogleSheets();
-            await logActivity('ลบ/ปรับผลตรวจนับ', `ลบผลตรวจนับวันที่ ${dateToDelete || ''} และปรับยอดสินค้าที่เกี่ยวข้อง`);
+            await logActivity('เพิ่ม ลบ/ปรับผลตรวจนับ', `ลบผลตรวจนับวันที่ ${deletedAuditDate} และปรับยอดสินค้าที่เกี่ยวข้อง`);
             closeDeleteAuditModal();
             renderApp();
         }
@@ -1925,7 +1921,6 @@
             if (product) {
                 product.safetyStock = val;
                 await saveDataToGoogleSheets();
-                await logActivity('แก้ไข Safety Stock', `สินค้า ${product.id} ${product.name} | Safety Stock = ${val} ${product.unit}`);
                 renderApp();
                 closeSafetyModal();
             }
