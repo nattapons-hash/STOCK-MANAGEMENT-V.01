@@ -640,6 +640,103 @@
         // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
         let isDeleteMode = false;
 
+        /* =========================================================
+           IDENTITY / DEVICE
+           - deviceId คงเดิมต่อ 1 browser profile
+           - currentUser ดึงจาก localStorage ของหน้า Login
+           - ส่งข้อมูลนี้ไป GAS ทุกครั้งที่บันทึก
+        ========================================================= */
+        function getOrCreateDeviceId() {
+            const KEY = 'stockManagementDeviceId';
+            let deviceId = localStorage.getItem(KEY);
+
+            if (!deviceId) {
+                let randomPart = '';
+                try {
+                    if (window.crypto && crypto.getRandomValues) {
+                        const bytes = new Uint8Array(4);
+                        crypto.getRandomValues(bytes);
+                        randomPart = Array.from(bytes)
+                            .map(b => b.toString(16).padStart(2, '0'))
+                            .join('')
+                            .toUpperCase();
+                    }
+                } catch (e) {}
+
+                if (!randomPart) {
+                    randomPart = Math.random().toString(16).slice(2, 10).padEnd(8, '0').slice(0, 8).toUpperCase();
+                }
+
+                deviceId = 'DEV-' + randomPart;
+                localStorage.setItem(KEY, deviceId);
+            }
+
+            return deviceId;
+        }
+
+        function getDeviceInfo() {
+            const parts = [];
+            if (navigator.platform) parts.push(navigator.platform);
+            if (navigator.language) parts.push(navigator.language);
+            if (navigator.userAgent) parts.push(navigator.userAgent);
+            return parts.join(' / ').slice(0, 500);
+        }
+
+        function normalizeLoggedInUser(value) {
+            if (value === null || value === undefined) return '';
+
+            if (typeof value === 'object') {
+                return String(
+                    value.name ||
+                    value.username ||
+                    value.user ||
+                    value.email ||
+                    ''
+                ).trim();
+            }
+
+            const text = String(value).trim();
+            if (!text) return '';
+
+            // รองรับกรณี currentUser ถูกเก็บเป็น JSON object
+            if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+                try {
+                    return normalizeLoggedInUser(JSON.parse(text));
+                } catch (e) {}
+            }
+
+            return text;
+        }
+
+        function getLoggedInUser() {
+            const keys = [
+                'currentUser',
+                'username',
+                'userName',
+                'loggedInUser',
+                'loginUser',
+                'user'
+            ];
+
+            for (const key of keys) {
+                const value = normalizeLoggedInUser(localStorage.getItem(key));
+                if (value) return value;
+            }
+
+            return '';
+        }
+
+        function getClientIdentity() {
+            return {
+                currentUser: getLoggedInUser(),
+                deviceId: getOrCreateDeviceId(),
+                deviceInfo: getDeviceInfo()
+            };
+        }
+
+        // สร้าง deviceId ทันทีเมื่อเปิดระบบ เพื่อให้เครื่องนี้มี ID คงที่
+        getOrCreateDeviceId();
+
         /* --- ฟังก์ชันล็อกเอาท์และเปลี่ยนรหัสผ่าน --- */
         function logout() {
             if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
@@ -883,6 +980,9 @@
 
         async function saveDataToGoogleSheets() {
             showLoading(true);
+
+            const identity = getClientIdentity();
+
             const appData = {
                 categories: categories,
                 users: users,
@@ -890,7 +990,13 @@
                 products: products,
                 auditDates: auditDates,
                 auditRecords: auditRecords,
-                transactions: transactions
+                transactions: transactions,
+
+                // สำคัญ: ข้อมูลคนที่ Login และเครื่องที่ทำรายการ
+                currentUser: identity.currentUser,
+                activityUser: identity.currentUser,
+                deviceId: identity.deviceId,
+                deviceInfo: identity.deviceInfo
             };
 
             try {
