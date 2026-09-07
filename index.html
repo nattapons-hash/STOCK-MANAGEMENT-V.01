@@ -778,17 +778,15 @@
             document.getElementById('changePasswordModal').classList.remove('flex');
         }
 
-        function handleChangePassword(e) {
+        async function handleChangePassword(e) {
             e.preventDefault();
-            const oldPass = document.getElementById('oldPassword').value;
+
+            const oldPass = document.getElementById('oldPassword').value.trim();
             const newPass = document.getElementById('newPassword').value;
             const confirmPass = document.getElementById('confirmNewPassword').value;
 
-            // ดึงรหัสผ่านปัจจุบันจาก localStorage (หากยังไม่มี ให้ถือว่ารหัสเริ่มต้นคือ admin123)
-            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
-
-            if (oldPass !== currentStoredPass) {
-                alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
+            if (!oldPass) {
+                alert("กรุณากรอกรหัสผ่านปัจจุบัน");
                 return;
             }
 
@@ -802,10 +800,58 @@
                 return;
             }
 
-            // บันทึกรหัสผ่านใหม่
-            localStorage.setItem("appPassword", newPass);
-            alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
-            closeChangePasswordModal();
+            if (newPass === oldPass) {
+                alert("รหัสผ่านใหม่ต้องไม่เหมือนรหัสผ่านเดิม");
+                return;
+            }
+
+            // ใช้รหัสผ่านที่โหลดจาก Google Sheets หากมี
+            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
+
+            if (oldPass !== currentStoredPass) {
+                alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
+                return;
+            }
+
+            const identity = getClientIdentity();
+
+            // ส่งรหัสผ่านใหม่ไป Google Apps Script
+            // GAS จะบันทึก Settings และสร้าง ActivityLogs ให้เอง
+            const payload = {
+                appPassword: newPass,
+                currentUser: identity.currentUser,
+                activityUser: identity.currentUser,
+                user: identity.currentUser,
+                deviceId: identity.deviceId,
+                deviceInfo: identity.deviceInfo
+            };
+
+            try {
+                showLoading(true);
+
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result && result.status === 'error') {
+                    throw new Error(result.message || 'ไม่สามารถบันทึกรหัสผ่านได้');
+                }
+
+                // บันทึกในเครื่องหลังจาก Server ตอบสำเร็จเท่านั้น
+                localStorage.setItem('appPassword', newPass);
+
+                alert('เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!');
+                closeChangePasswordModal();
+
+            } catch (err) {
+                console.error('Change password error:', err);
+                alert('ไม่สามารถบันทึกรหัสผ่านได้\n\n' + (err.message || err));
+            } finally {
+                showLoading(false);
+            }
         }
 
         function showLoading(show) {
