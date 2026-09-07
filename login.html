@@ -3,52 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เข้าสู่ระบบ - ระบบจัดการคลังสินค้า</title>
+    <title>เข้าสู่ระบบ - ระบบบริหารสต๊อก</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Kanit', sans-serif; }</style>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Kanit', sans-serif; }
+    </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center h-screen">
-    <div class="bg-white p-8 rounded-2xl shadow-md w-full max-w-sm">
-        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">เข้าสู่ระบบ Stock</h2>
-        <div id="error-msg" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4 text-sm text-center">
-            ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง
+<body class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md">
+        <div class="bg-white rounded-3xl shadow-xl border border-gray-200 overflow-hidden">
+            <div class="bg-blue-600 text-white p-7 text-center">
+                <div class="text-5xl mb-3">📦</div>
+                <h1 class="text-2xl font-bold">ระบบบริหารจัดการสต๊อก</h1>
+                <p class="text-blue-100 text-sm mt-1">กรุณาเข้าสู่ระบบเพื่อใช้งาน</p>
+            </div>
+
+            <form id="loginForm" class="p-7 space-y-5" onsubmit="handleLogin(event)">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">ชื่อผู้ใช้งาน</label>
+                    <input
+                        type="text"
+                        id="username"
+                        autocomplete="username"
+                        placeholder="กรอกชื่อผู้ใช้งาน"
+                        class="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">รหัสผ่าน</label>
+                    <input
+                        type="password"
+                        id="password"
+                        autocomplete="current-password"
+                        placeholder="กรอกรหัสผ่าน"
+                        class="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                    >
+                </div>
+
+                <button
+                    id="loginButton"
+                    type="submit"
+                    class="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold py-3 rounded-xl transition shadow-md"
+                >
+                    🔐 เข้าสู่ระบบ
+                </button>
+
+                <p id="loginMessage" class="hidden text-center text-sm rounded-xl p-3"></p>
+            </form>
         </div>
-        <form id="loginForm" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">ชื่อผู้ใช้งาน</label>
-                <input type="text" id="username" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="admin" required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน</label>
-                <input type="password" id="password" class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="123" required>
-            </div>
-            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium p-2.5 rounded-lg transition">เข้าสู่ระบบ</button>
-        </form>
+
+        <p class="text-center text-xs text-gray-400 mt-4">
+            รหัสผ่านถูกตรวจสอบจาก Google Sheets โดยตรง
+        </p>
     </div>
 
-  <script>
-  // รหัสผ่านเริ่มต้น (หากยังไม่เคยเปลี่ยน)
-  const DEFAULT_PASS = "admin123";
+<script>
+    const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxnAYb3H01_tIJSsmNq6SsxEgWMSU3VqerORBPuuANDO-IGpqvL-meb1nxPfAyt3cFG/exec';
 
-  document.getElementById('loginForm').addEventListener('submit', function(e) {
-    e.preventDefault();
+    function getOrCreateDeviceId() {
+        const KEY = 'stockManagementDeviceId';
+        let deviceId = localStorage.getItem(KEY);
 
-    const usernameInput = document.getElementById('username').value.trim();
-    const passwordInput = document.getElementById('password').value.trim();
-    const errorMsg = document.getElementById('error-msg');
+        if (!deviceId) {
+            let randomPart = '';
+            try {
+                if (window.crypto && crypto.getRandomValues) {
+                    const bytes = new Uint8Array(4);
+                    crypto.getRandomValues(bytes);
+                    randomPart = Array.from(bytes)
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join('')
+                        .toUpperCase();
+                }
+            } catch (e) {}
 
-    // ดึงรหัสผ่านล่าสุดจาก Local Storage (หากไม่มีให้ใช้ค่าเริ่มต้น admin123)
-    const savedPassword = localStorage.getItem("appPassword") || DEFAULT_PASS;
+            if (!randomPart) {
+                randomPart = Math.random().toString(16).slice(2, 10).padEnd(8, '0').slice(0, 8).toUpperCase();
+            }
 
-    // ตรวจสอบชื่อผู้ใช้และรหัสผ่าน
-    if (usernameInput === "admin" && passwordInput === savedPassword) {
-      localStorage.setItem("isLoggedIn", "true");
-      window.location.href = "index.html";
-    } else {
-      errorMsg.classList.remove('hidden');
+            deviceId = 'DEV-' + randomPart;
+            localStorage.setItem(KEY, deviceId);
+        }
+
+        return deviceId;
     }
-  });
+
+    function getDeviceInfo() {
+        const parts = [];
+        if (navigator.platform) parts.push(navigator.platform);
+        if (navigator.language) parts.push(navigator.language);
+        if (navigator.userAgent) parts.push(navigator.userAgent);
+        return parts.join(' / ').slice(0, 500);
+    }
+
+    function showMessage(text, type) {
+        const el = document.getElementById('loginMessage');
+        el.textContent = text;
+        el.classList.remove('hidden', 'text-red-600', 'bg-red-50', 'text-green-600', 'bg-green-50');
+
+        if (type === 'error') {
+            el.classList.add('text-red-600', 'bg-red-50');
+        } else {
+            el.classList.add('text-green-600', 'bg-green-50');
+        }
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const button = document.getElementById('loginButton');
+
+        if (!username) {
+            showMessage('กรุณากรอกชื่อผู้ใช้งาน', 'error');
+            return;
+        }
+
+        if (!password) {
+            showMessage('กรุณากรอกรหัสผ่าน', 'error');
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = 'กำลังตรวจสอบ...';
+
+        try {
+            const response = await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'login',
+                    password: password,
+                    currentUser: username,
+                    activityUser: username,
+                    user: username,
+                    deviceId: getOrCreateDeviceId(),
+                    deviceInfo: getDeviceInfo()
+                })
+            });
+
+            const result = await response.json();
+
+            if (!result || result.status !== 'success' || result.authenticated !== true) {
+                throw new Error((result && result.message) || 'รหัสผ่านไม่ถูกต้อง');
+            }
+
+            // เก็บเฉพาะสถานะ Login และชื่อผู้ใช้งานเพื่อใช้กับ ActivityLogs
+            // ห้ามเก็บรหัสผ่านไว้ใน localStorage
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('currentUser', username);
+
+            window.location.href = 'index.html';
+
+        } catch (err) {
+            console.error('Login error:', err);
+            showMessage(err.message || 'ไม่สามารถเชื่อมต่อ Google Sheets ได้', 'error');
+            button.disabled = false;
+            button.textContent = '🔐 เข้าสู่ระบบ';
+        }
+    }
+
+    // ถ้า Login อยู่แล้ว ไม่ต้องกลับมา Login ซ้ำ
+    if (localStorage.getItem('isLoggedIn') === 'true') {
+        window.location.href = 'index.html';
+    }
 </script>
 </body>
 </html>
