@@ -265,14 +265,6 @@
                     </div>
                 </div>
 
-                <!-- ปุ่มยืนยัน: ย้ายขึ้นมาไว้ด้านบนของตาราง -->
-                <div class="flex justify-end items-center gap-3 mb-4">
-                    <button type="submit" form="multiTransForm" class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold px-8 py-3 rounded-xl transition text-base shadow-md flex items-center gap-2">
-                        <span>✅</span>
-                        <span>บันทึกรายการที่เลือก</span>
-                    </button>
-                </div>
-
                 <div class="overflow-x-auto border border-gray-200 rounded-xl mb-6">
                     <table class="w-full text-left border-collapse">
                         <thead class="bg-gray-100 text-gray-600 text-xs font-semibold uppercase">
@@ -289,6 +281,11 @@
                     </table>
                 </div>
 
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition text-base shadow-md">
+                        บันทึกรายการที่เลือก
+                    </button>
+                </div>
             </form>
         </div>
 
@@ -300,10 +297,13 @@
                     <p class="text-xs text-gray-400 mt-1">เลือกวันที่จากปฏิทิน เลือกหมวดหมู่ และกรอกยอดนับจริงเพื่อเพิ่มคอลัมน์รอบใหม่ในตาราง Matrix</p>
                 </div>
                 
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
                     <label class="text-sm font-medium text-purple-900">หมวดหมู่สินค้า:</label>
                     <select id="selectAuditCategory" onchange="renderNewAuditForm()" class="border border-purple-500 text-purple-800 bg-purple-50 font-medium rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                     </select>
+                    <button type="button" onclick="printNewAuditSheet()" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold px-4 py-2 rounded-xl text-sm shadow-md">
+                        🖨️ พิมพ์ใบตรวจนับ A4
+                    </button>
                 </div>
             </div>
 
@@ -323,12 +323,12 @@
                     </div>
                 </div>
 
-                <!-- ปุ่มยืนยัน: ย้ายขึ้นมาไว้ด้านบนของตาราง ให้ตำแหน่งเหมือนหน้าเบิก-รับ -->
-                <div class="flex justify-end items-center gap-3 mb-4">
-                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold px-8 py-3 rounded-xl transition text-base shadow-md flex items-center gap-2">
-                        <span>✅</span>
-                        <span>บันทึกยอดนับจริงรอบนี้เข้า Matrix</span>
-                    </button>
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3 mb-4">
+                    <div class="text-sm text-purple-900">
+                        <span class="font-semibold">ยอดอ้างอิงสำหรับรอบนี้:</span>
+                        <span id="auditReferenceLabel">ยอดเริ่มต้น</span>
+                    </div>
+                    <div class="text-xs text-gray-500">ถ้าเคยตรวจนับแล้ว ระบบจะใช้ยอดนับจริงจากรอบล่าสุดก่อนวันที่นี้</div>
                 </div>
 
                 <div class="overflow-x-auto border border-gray-200 rounded-xl mb-6">
@@ -338,12 +338,18 @@
                                 <th class="p-3 w-20">Mat.No.</th>
                                 <th class="p-3">ชื่อสินค้า</th>
                                 <th class="p-3 text-center">หน่วย</th>
-                                <th class="p-3 text-center">คงเหลือล่าสุด</th>
+                                <th class="p-3 text-center">ยอดอ้างอิง</th>
                                 <th class="p-3 text-center w-36">ยอดนับจริงรอบนี้</th>
                             </tr>
                         </thead>
                         <tbody id="newAuditTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
                     </table>
+                </div>
+
+                <div class="flex justify-end">
+                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-8 py-3 rounded-xl transition text-base shadow-md">
+                        บันทึกยอดนับจริงรอบนี้เข้า Matrix
+                    </button>
                 </div>
             </form>
         </div>
@@ -642,103 +648,6 @@
         // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
         let isDeleteMode = false;
 
-        /* =========================================================
-           IDENTITY / DEVICE
-           - deviceId คงเดิมต่อ 1 browser profile
-           - currentUser ดึงจาก localStorage ของหน้า Login
-           - ส่งข้อมูลนี้ไป GAS ทุกครั้งที่บันทึก
-        ========================================================= */
-        function getOrCreateDeviceId() {
-            const KEY = 'stockManagementDeviceId';
-            let deviceId = localStorage.getItem(KEY);
-
-            if (!deviceId) {
-                let randomPart = '';
-                try {
-                    if (window.crypto && crypto.getRandomValues) {
-                        const bytes = new Uint8Array(4);
-                        crypto.getRandomValues(bytes);
-                        randomPart = Array.from(bytes)
-                            .map(b => b.toString(16).padStart(2, '0'))
-                            .join('')
-                            .toUpperCase();
-                    }
-                } catch (e) {}
-
-                if (!randomPart) {
-                    randomPart = Math.random().toString(16).slice(2, 10).padEnd(8, '0').slice(0, 8).toUpperCase();
-                }
-
-                deviceId = 'DEV-' + randomPart;
-                localStorage.setItem(KEY, deviceId);
-            }
-
-            return deviceId;
-        }
-
-        function getDeviceInfo() {
-            const parts = [];
-            if (navigator.platform) parts.push(navigator.platform);
-            if (navigator.language) parts.push(navigator.language);
-            if (navigator.userAgent) parts.push(navigator.userAgent);
-            return parts.join(' / ').slice(0, 500);
-        }
-
-        function normalizeLoggedInUser(value) {
-            if (value === null || value === undefined) return '';
-
-            if (typeof value === 'object') {
-                return String(
-                    value.name ||
-                    value.username ||
-                    value.user ||
-                    value.email ||
-                    ''
-                ).trim();
-            }
-
-            const text = String(value).trim();
-            if (!text) return '';
-
-            // รองรับกรณี currentUser ถูกเก็บเป็น JSON object
-            if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
-                try {
-                    return normalizeLoggedInUser(JSON.parse(text));
-                } catch (e) {}
-            }
-
-            return text;
-        }
-
-        function getLoggedInUser() {
-            const keys = [
-                'currentUser',
-                'username',
-                'userName',
-                'loggedInUser',
-                'loginUser',
-                'user'
-            ];
-
-            for (const key of keys) {
-                const value = normalizeLoggedInUser(localStorage.getItem(key));
-                if (value) return value;
-            }
-
-            return '';
-        }
-
-        function getClientIdentity() {
-            return {
-                currentUser: getLoggedInUser(),
-                deviceId: getOrCreateDeviceId(),
-                deviceInfo: getDeviceInfo()
-            };
-        }
-
-        // สร้าง deviceId ทันทีเมื่อเปิดระบบ เพื่อให้เครื่องนี้มี ID คงที่
-        getOrCreateDeviceId();
-
         /* --- ฟังก์ชันล็อกเอาท์และเปลี่ยนรหัสผ่าน --- */
         function logout() {
             if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
@@ -780,15 +689,17 @@
             document.getElementById('changePasswordModal').classList.remove('flex');
         }
 
-        async function handleChangePassword(e) {
+        function handleChangePassword(e) {
             e.preventDefault();
-
-            const oldPass = document.getElementById('oldPassword').value.trim();
+            const oldPass = document.getElementById('oldPassword').value;
             const newPass = document.getElementById('newPassword').value;
             const confirmPass = document.getElementById('confirmNewPassword').value;
 
-            if (!oldPass) {
-                alert("กรุณากรอกรหัสผ่านปัจจุบัน");
+            // ดึงรหัสผ่านปัจจุบันจาก localStorage (หากยังไม่มี ให้ถือว่ารหัสเริ่มต้นคือ admin123)
+            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
+
+            if (oldPass !== currentStoredPass) {
+                alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
                 return;
             }
 
@@ -802,58 +713,10 @@
                 return;
             }
 
-            if (newPass === oldPass) {
-                alert("รหัสผ่านใหม่ต้องไม่เหมือนรหัสผ่านเดิม");
-                return;
-            }
-
-            // ใช้รหัสผ่านที่โหลดจาก Google Sheets หากมี
-            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
-
-            if (oldPass !== currentStoredPass) {
-                alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
-                return;
-            }
-
-            const identity = getClientIdentity();
-
-            // ส่งรหัสผ่านใหม่ไป Google Apps Script
-            // GAS จะบันทึก Settings และสร้าง ActivityLogs ให้เอง
-            const payload = {
-                appPassword: newPass,
-                currentUser: identity.currentUser,
-                activityUser: identity.currentUser,
-                user: identity.currentUser,
-                deviceId: identity.deviceId,
-                deviceInfo: identity.deviceInfo
-            };
-
-            try {
-                showLoading(true);
-
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
-                });
-
-                const result = await response.json();
-
-                if (result && result.status === 'error') {
-                    throw new Error(result.message || 'ไม่สามารถบันทึกรหัสผ่านได้');
-                }
-
-                // บันทึกในเครื่องหลังจาก Server ตอบสำเร็จเท่านั้น
-                localStorage.setItem('appPassword', newPass);
-
-                alert('เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!');
-                closeChangePasswordModal();
-
-            } catch (err) {
-                console.error('Change password error:', err);
-                alert('ไม่สามารถบันทึกรหัสผ่านได้\n\n' + (err.message || err));
-            } finally {
-                showLoading(false);
-            }
+            // บันทึกรหัสผ่านใหม่
+            localStorage.setItem("appPassword", newPass);
+            alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
+            closeChangePasswordModal();
         }
 
         function showLoading(show) {
@@ -1028,9 +891,6 @@
 
         async function saveDataToGoogleSheets() {
             showLoading(true);
-
-            const identity = getClientIdentity();
-
             const appData = {
                 categories: categories,
                 users: users,
@@ -1038,13 +898,7 @@
                 products: products,
                 auditDates: auditDates,
                 auditRecords: auditRecords,
-                transactions: transactions,
-
-                // สำคัญ: ข้อมูลคนที่ Login และเครื่องที่ทำรายการ
-                currentUser: identity.currentUser,
-                activityUser: identity.currentUser,
-                deviceId: identity.deviceId,
-                deviceInfo: identity.deviceInfo
+                transactions: transactions
             };
 
             try {
@@ -1774,29 +1628,101 @@
             renderApp();
         }
 
+        function getAuditReferenceForProduct(productId, auditDate) {
+            const product = products.find(p => String(p.id) === String(productId));
+            const initialQty = product && product.initialQty !== undefined
+                ? Number(product.initialQty) || 0
+                : Number(product?.currentQty || 0);
+
+            const targetDate = String(auditDate || '').trim();
+            let latestDate = null;
+            let latestQty = initialQty;
+
+            // หา "รอบตรวจนับล่าสุดก่อนวันที่รอบใหม่"
+            auditDates.forEach(date => {
+                const d = String(date || '').trim();
+                if (!d || (targetDate && d >= targetDate)) return;
+                if (!auditRecords[d] || !auditRecords[d].items) return;
+
+                const item = auditRecords[d].items[String(productId)];
+                if (item === undefined || item === null || item === '') return;
+
+                if (!latestDate || d > latestDate) {
+                    latestDate = d;
+                    latestQty = Number(item) || 0;
+                }
+            });
+
+            // ถ้าวันที่นี้มีข้อมูลเดิมอยู่แล้ว ให้ใช้ข้อมูลเดิมของวันนั้น
+            if (targetDate && auditRecords[targetDate] && auditRecords[targetDate].items) {
+                const sameDay = auditRecords[targetDate].items[String(productId)];
+                if (sameDay !== undefined && sameDay !== null && sameDay !== '') {
+                    latestDate = targetDate;
+                    latestQty = Number(sameDay) || 0;
+                }
+            }
+
+            return {
+                qty: latestQty,
+                date: latestDate,
+                source: latestDate ? 'รอบตรวจนับ ' + latestDate : 'ยอดเริ่มต้น'
+            };
+        }
+
+        function getAuditProductsForCurrentSelection() {
+            const cat = document.getElementById('selectAuditCategory')
+                ? document.getElementById('selectAuditCategory').value
+                : 'ALL';
+            return cat === 'ALL'
+                ? products
+                : products.filter(p => p.category === cat);
+        }
+
         function renderNewAuditForm() {
             const tbody = document.getElementById('newAuditTableBody');
             if (!tbody) return;
 
-            const cat = document.getElementById('selectAuditCategory') ? document.getElementById('selectAuditCategory').value : 'ALL';
-            const filtered = (cat === 'ALL') ? products : products.filter(p => p.category === cat);
+            const auditDateEl = document.getElementById('newAuditDate');
+            const auditDate = auditDateEl ? auditDateEl.value : '';
+            const filtered = getAuditProductsForCurrentSelection();
+            const referenceLabel = document.getElementById('auditReferenceLabel');
 
             if (filtered.length === 0) {
                 tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="5">ไม่พบรายการสินค้าในหมวดหมู่นี้</td></tr>`;
+                if (referenceLabel) referenceLabel.textContent = 'ยอดเริ่มต้น';
                 return;
             }
 
-            tbody.innerHTML = filtered.map(p => `
-                <tr class="hover:bg-gray-50 transition">
-                    <td class="p-3 font-semibold text-purple-900">${p.id}</td>
-                    <td class="p-3 font-medium text-gray-800">${p.name} <span class="text-xs text-gray-400">(${p.category})</span></td>
-                    <td class="p-3 text-center text-gray-500">${p.unit}</td>
-                    <td class="p-3 text-center font-semibold text-gray-700">${p.currentQty}</td>
-                    <td class="p-3 text-center">
-                        <input type="number" data-audit-id="${p.id}" min="0" placeholder="${p.currentQty}" onkeydown="handleEnterNav(event, '.audit-qty-input')" class="audit-qty-input w-28 border border-purple-300 rounded-lg p-1.5 text-center text-sm focus:ring-2 focus:ring-purple-500 outline-none font-semibold text-purple-900">
-                    </td>
-                </tr>
-            `).join('');
+            const refs = filtered.map(p => getAuditReferenceForProduct(p.id, auditDate));
+            const hasPrevious = refs.some(r => r.date);
+            if (referenceLabel) {
+                referenceLabel.textContent = hasPrevious
+                    ? 'ใช้ยอดนับจริงจากรอบตรวจนับล่าสุดของแต่ละสินค้า'
+                    : 'ยอดเริ่มต้นของสินค้า';
+            }
+
+            tbody.innerHTML = filtered.map(p => {
+                const ref = getAuditReferenceForProduct(p.id, auditDate);
+                const existing = auditDate && auditRecords[auditDate] && auditRecords[auditDate].items
+                    ? auditRecords[auditDate].items[String(p.id)]
+                    : undefined;
+                const value = existing !== undefined && existing !== null ? existing : '';
+
+                return `
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="p-3 font-semibold text-purple-900">${escapeHtml(p.id)}</td>
+                        <td class="p-3 font-medium text-gray-800">${escapeHtml(p.name)} <span class="text-xs text-gray-400">(${escapeHtml(p.category || '')})</span></td>
+                        <td class="p-3 text-center text-gray-500">${escapeHtml(p.unit || '')}</td>
+                        <td class="p-3 text-center font-semibold text-blue-700">
+                            <div>${ref.qty}</div>
+                            <div class="text-[10px] text-gray-400 font-normal">${escapeHtml(ref.source)}</div>
+                        </td>
+                        <td class="p-3 text-center">
+                            <input type="number" data-audit-id="${escapeHtml(p.id)}" min="0" value="${value}" placeholder="${ref.qty}" onkeydown="handleEnterNav(event, '.audit-qty-input')" class="audit-qty-input w-28 border border-purple-300 rounded-lg p-1.5 text-center text-sm focus:ring-2 focus:ring-purple-500 outline-none font-semibold text-purple-900">
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         async function handleSaveNewAudit(e) {
@@ -1813,16 +1739,20 @@
             inputs.forEach(input => {
                 const id = input.getAttribute('data-audit-id');
                 const val = input.value.trim();
-                const prod = products.find(p => p.id === id);
+                const prod = products.find(p => String(p.id) === String(id));
+                const ref = getAuditReferenceForProduct(id, date);
+
                 if (val !== '') {
                     newItems[id] = parseFloat(val);
                 } else if (prod && newItems[id] === undefined) {
-                    newItems[id] = prod.currentQty;
+                    // ถ้าไม่กรอก ให้ใช้ยอดอ้างอิงของรอบนี้ ไม่ใช่ currentQty ปัจจุบัน
+                    newItems[id] = ref.qty;
                 }
             });
 
             if (!auditDates.includes(date)) {
                 auditDates.push(date);
+                auditDates.sort();
             }
 
             auditRecords[date] = {
@@ -1832,13 +1762,108 @@
 
             products.forEach(p => {
                 if (newItems[p.id] !== undefined) {
-                    p.currentQty = newItems[p.id];
+                    p.currentQty = Number(newItems[p.id]) || 0;
                 }
             });
 
             await saveDataToGoogleSheets();
             alert(`ลงบันทึกการตรวจนับประจำวันที่ ${date} เข้าสู่ระบบ Matrix เรียบร้อยแล้ว!`);
             switchTab('matrix');
+        }
+
+        function escapeHtml(value) {
+            return String(value === undefined || value === null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function printNewAuditSheet() {
+            const date = document.getElementById('newAuditDate')?.value || '';
+            const auditor = document.getElementById('newAuditUserSelect')?.value || '';
+            const cat = document.getElementById('selectAuditCategory')?.value || 'ALL';
+            const list = getAuditProductsForCurrentSelection();
+
+            if (!date) {
+                alert('กรุณาเลือกวันที่ตรวจนับก่อนพิมพ์ใบตรวจนับ');
+                return;
+            }
+            if (!list.length) {
+                alert('ไม่พบรายการสินค้าที่ต้องการพิมพ์');
+                return;
+            }
+
+            const categoryText = cat === 'ALL' ? 'ทุกหมวดหมู่' : cat;
+            const rows = list.map((p, i) => {
+                const ref = getAuditReferenceForProduct(p.id, date);
+                return `
+                    <tr>
+                        <td class="center">${i + 1}</td>
+                        <td>${escapeHtml(p.id)}</td>
+                        <td>${escapeHtml(p.name)}</td>
+                        <td class="center">${escapeHtml(p.unit || '')}</td>
+                        <td class="center bold">${ref.qty}</td>
+                        <td class="count-cell"></td>
+                        <td></td>
+                    </tr>`;
+            }).join('');
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                alert('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต Pop-up สำหรับหน้านี้');
+                return;
+            }
+
+            printWindow.document.write(`<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>ใบตรวจนับสต๊อก - ${escapeHtml(date)}</title>
+<style>
+@page { size: A4 portrait; margin: 12mm; }
+* { box-sizing: border-box; }
+body { font-family: Arial, Tahoma, sans-serif; color:#111; font-size:12px; margin:0; }
+.header { text-align:center; margin-bottom:10px; }
+.title { font-size:20px; font-weight:700; }
+.subtitle { font-size:12px; margin-top:3px; }
+.info { width:100%; border-collapse:collapse; margin:12px 0; }
+.info td { padding:5px 6px; border:1px solid #aaa; }
+.label { font-weight:700; width:18%; background:#f3f3f3; }
+table.stock { width:100%; border-collapse:collapse; }
+table.stock th, table.stock td { border:1px solid #777; padding:5px 6px; height:28px; }
+table.stock th { background:#e9e9e9; text-align:center; font-weight:700; }
+.center { text-align:center; }
+.bold { font-weight:700; }
+.count-cell { height:32px; }
+.note { height:32px; }
+.footer { margin-top:14px; }
+.sign { width:100%; border-collapse:collapse; margin-top:18px; }
+.sign td { width:50%; text-align:center; padding-top:30px; }
+.small { font-size:10px; color:#555; }
+@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<div class="header">
+    <div class="title">ใบตรวจนับสต๊อกสินค้า</div>
+    <div class="subtitle">STOCK COUNT SHEET</div>
+</div>
+<table class="info">
+<tr><td class="label">รอบตรวจนับ</td><td>________________________________</td><td class="label">วันที่</td><td>${escapeHtml(date)}</td></tr>
+<tr><td class="label">หมวดหมู่</td><td>${escapeHtml(categoryText)}</td><td class="label">ผู้ตรวจนับ</td><td>${escapeHtml(auditor)}</td></tr>
+</table>
+<div class="small" style="margin-bottom:5px;">ยอดอ้างอิง = ยอดเริ่มต้น หากมีการตรวจนับก่อนหน้า ระบบจะแสดงยอดนับจริงจากรอบล่าสุดก่อนวันที่ตรวจนับนี้</div>
+<table class="stock">
+<thead><tr><th style="width:6%">ลำดับ</th><th style="width:13%">Mat.No.</th><th>รายการสินค้า</th><th style="width:10%">หน่วย</th><th style="width:12%">ยอดอ้างอิง</th><th style="width:14%">นับจริง</th><th style="width:15%">หมายเหตุ</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+<div class="footer">จำนวนรายการที่ตรวจนับทั้งหมด: __________ รายการ</div>
+<table class="sign"><tr><td>ผู้ตรวจนับ __________________________</td><td>ผู้ตรวจสอบ __________________________</td></tr><tr><td>วันที่ ______________________________</td><td>วันที่ ______________________________</td></tr></table>
+<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>
+</body></html>`);
+            printWindow.document.close();
         }
 
         /* --- ปรับปรุงตารางสต๊อกคงเหลือ และรองรับการเลือกแสดง/ซ่อนปุ่มลบ --- */
