@@ -1102,14 +1102,18 @@
             }
         }
 
-        function loadDataFromGoogleSheetsJSONP() {
+        function loadDataFromGoogleSheetsJSONP(timeoutMs = 25000) {
             return new Promise((resolve, reject) => {
                 const callbackName = '__stockSheetsCallback_' + Date.now() + '_' + Math.random().toString(36).slice(2);
                 const script = document.createElement('script');
+                let settled = false;
+
                 const timeout = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
                     cleanup();
                     reject(new Error('หมดเวลารอข้อมูลจาก Google Sheets'));
-                }, 20000);
+                }, timeoutMs);
 
                 function cleanup() {
                     clearTimeout(timeout);
@@ -1118,11 +1122,15 @@
                 }
 
                 window[callbackName] = function(data) {
+                    if (settled) return;
+                    settled = true;
                     cleanup();
                     resolve(data);
                 };
 
                 script.onerror = function() {
+                    if (settled) return;
+                    settled = true;
                     cleanup();
                     reject(new Error('ไม่สามารถเชื่อมต่อ Google Apps Script ได้'));
                 };
@@ -1134,31 +1142,49 @@
 
         async function loadDataFromGoogleSheets() {
             showLoading(true);
+
+            // Google Apps Script อาจใช้เวลานานเป็นพิเศษในครั้งแรกหลังไม่มีการใช้งาน
+            // จึง retry อัตโนมัติ 2 ครั้ง โดยไม่เปลี่ยนข้อมูลหรือเงื่อนไขของระบบเดิม
+            const maxAttempts = 3;
+            let lastError = null;
+
             try {
-                // ใช้ JSONP สำหรับการอ่านข้อมูล เพื่อไม่ให้ CORS/redirect ของ Apps Script
-                // ทำให้หน้า GitHub โหลดข้อมูลไม่ได้หลัง refresh
-                const remoteData = await loadDataFromGoogleSheetsJSONP();
-                
-                if (remoteData && typeof remoteData === 'object') {
-                    if (Array.isArray(remoteData.categories) && remoteData.categories.length > 0) categories = remoteData.categories;
-                    if (Array.isArray(remoteData.users) && remoteData.users.length > 0) users = remoteData.users;
-                    if (Array.isArray(remoteData.auditUsers) && remoteData.auditUsers.length > 0) auditUsers = remoteData.auditUsers;
-                    if (Array.isArray(remoteData.products)) products = remoteData.products;
-                    if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
-                    if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
-                    if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        const remoteData = await loadDataFromGoogleSheetsJSONP(25000);
+
+                        if (!remoteData || typeof remoteData !== 'object') {
+                            throw new Error('ได้รับข้อมูลจาก Google Sheets ไม่ถูกต้อง');
+                        }
+
+                        if (Array.isArray(remoteData.categories) && remoteData.categories.length > 0) categories = remoteData.categories;
+                        if (Array.isArray(remoteData.users) && remoteData.users.length > 0) users = remoteData.users;
+                        if (Array.isArray(remoteData.auditUsers) && remoteData.auditUsers.length > 0) auditUsers = remoteData.auditUsers;
+                        if (Array.isArray(remoteData.products)) products = remoteData.products;
+                        if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
+                        if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
+                        if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
+
+                        syncCurrentStockFromTransactions();
+                        renderCategoryOptions();
+                        renderUserOptions();
+                        renderAuditUserOptions();
+                        renderApp();
+                        return;
+                    } catch (err) {
+                        lastError = err;
+                        console.warn('Google Sheets load attempt ' + attempt + '/' + maxAttempts + ' failed:', err);
+
+                        if (attempt < maxAttempts) {
+                            await new Promise(resolve => setTimeout(resolve, 1200));
+                        }
+                    }
                 }
 
-                syncCurrentStockFromTransactions();
-                renderCategoryOptions();
-                renderUserOptions();
-                renderAuditUserOptions();
-                renderApp();
-            } catch (err) {
-                console.error('ไม่สามารถดึงข้อมูลจาก Google Sheets ได้:', err);
-                const message = err && err.message ? err.message : String(err);
+                console.error('ไม่สามารถดึงข้อมูลจาก Google Sheets ได้หลัง retry:', lastError);
+                const message = lastError && lastError.message ? lastError.message : String(lastError || 'ไม่ทราบสาเหตุ');
                 console.error('Google Sheets URL:', GOOGLE_SCRIPT_URL);
-                alert('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้\n\n' + message + '\n\nให้ตรวจสอบว่า Code.gs ถูก Deploy เป็น Web App เวอร์ชันล่าสุดแล้ว และใช้ URL เดิม');
+                alert('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้\n\n' + message + '\n\nระบบลองเชื่อมต่อให้อัตโนมัติแล้ว 3 ครั้ง\nกรุณาลองกด “รีเฟรชข้อมูล Real-time” อีกครั้ง');
             } finally {
                 showLoading(false);
             }
