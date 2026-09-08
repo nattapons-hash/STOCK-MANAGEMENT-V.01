@@ -787,17 +787,10 @@
 
         async function handleChangePassword(e) {
             e.preventDefault();
+
             const oldPass = document.getElementById('oldPassword').value;
             const newPass = document.getElementById('newPassword').value;
             const confirmPass = document.getElementById('confirmNewPassword').value;
-
-            // ดึงรหัสผ่านปัจจุบันจาก localStorage (หากยังไม่มี ให้ถือว่ารหัสเริ่มต้นคือ admin123)
-            const currentStoredPass = localStorage.getItem("appPassword") || "admin123";
-
-            if (oldPass !== currentStoredPass) {
-                alert("รหัสผ่านปัจจุบันไม่ถูกต้อง!");
-                return;
-            }
 
             if (newPass.length < 4) {
                 alert("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 4 ตัวอักษร");
@@ -809,14 +802,49 @@
                 return;
             }
 
-            // บันทึกรหัสผ่านใหม่
-            localStorage.setItem("appPassword", newPass);
-            await logSelectedActivity(
-                'เปลี่ยนรหัสผ่าน',
-                'เปลี่ยนรหัสผ่านเข้าใช้งานสำเร็จ'
-            );
-            alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
-            closeChangePasswordModal();
+            const currentUser = String(localStorage.getItem('currentUser') || '').trim();
+            const deviceId = getOrCreateDeviceId();
+            const deviceInfo = getDeviceInfo();
+
+            try {
+                showLoading(true);
+
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'changePassword',
+                        oldPassword: oldPass,
+                        newPassword: newPass,
+                        user: currentUser,
+                        currentUser: currentUser,
+                        deviceId: deviceId,
+                        deviceInfo: deviceInfo
+                    })
+                });
+
+                const result = await response.json();
+
+                if (!result || result.status !== 'success') {
+                    throw new Error((result && result.message) || 'ไม่สามารถเปลี่ยนรหัสผ่านได้');
+                }
+
+                // เก็บไว้เฉพาะเพื่อความเข้ากันได้กับหน้าเว็บเดิม
+                // การตรวจรหัสผ่านจริงใช้ Google Sheets เป็นแหล่งหลัก
+                localStorage.setItem("appPassword", newPass);
+
+                await logSelectedActivity(
+                    'เปลี่ยนรหัสผ่าน',
+                    'เปลี่ยนรหัสผ่านเข้าใช้งานสำเร็จ'
+                );
+
+                alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
+                closeChangePasswordModal();
+            } catch (err) {
+                console.error('Change password error:', err);
+                alert(err && err.message ? err.message : 'ไม่สามารถเปลี่ยนรหัสผ่านได้');
+            } finally {
+                showLoading(false);
+            }
         }
 
         function showLoading(show) {
