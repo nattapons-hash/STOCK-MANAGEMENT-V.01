@@ -1575,6 +1575,7 @@
             });
 
             await saveDataToGoogleSheets();
+            await logActivity('ลบการตรวจนับนี้', `ลบข้อมูลการตรวจนับประจำวันที่ ${dateToDelete}`);
             closeDeleteAuditModal();
             renderApp();
         }
@@ -1625,8 +1626,8 @@
                     <th class="p-2 border-r text-center bg-purple-100 text-purple-900 min-w-[100px] relative group" title="ตรวจนับจริง ${date}">
                         <div class="flex items-center justify-center gap-1">
                             <span>นับจริง<br>${date}${auditor}</span>
-                            <button onclick="openDeleteAuditModal('${date}')" class="text-red-500 hover:text-red-700 hover:bg-red-100 p-1 rounded-lg transition" title="ลบข้อมูลการตรวจนับรอบวันที่ ${date}">
-                                🗑️
+                            <button onclick="openDeleteAuditModal('${date}')" class="text-xs font-semibold text-red-600 hover:text-white bg-red-50 hover:bg-red-600 border border-red-200 hover:border-red-600 px-2.5 py-1.5 rounded-lg transition whitespace-nowrap" title="ลบข้อมูลการตรวจนับรอบวันที่ ${date}">
+                                ลบการตรวจนับนี้
                             </button>
                         </div>
                     </th>
