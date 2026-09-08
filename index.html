@@ -956,9 +956,37 @@
             });
         }
 
+        function getOrCreateDeviceId() {
+            const KEY = 'stockManagementDeviceId';
+            let deviceId = String(localStorage.getItem(KEY) || '').trim();
+            if (!deviceId) {
+                try {
+                    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                        deviceId = 'DEV-' + window.crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+                    } else {
+                        deviceId = 'DEV-' + Math.random().toString(16).slice(2, 10).toUpperCase();
+                    }
+                } catch (e) {
+                    deviceId = 'DEV-' + Date.now().toString(16).slice(-8).toUpperCase();
+                }
+                localStorage.setItem(KEY, deviceId);
+            }
+            return deviceId;
+        }
+
+        function getDeviceInfo() {
+            const parts = [];
+            if (navigator.platform) parts.push(navigator.platform);
+            if (navigator.language) parts.push(navigator.language);
+            if (navigator.userAgent) parts.push(navigator.userAgent);
+            return parts.join(' / ').slice(0, 500);
+        }
+
         async function saveDataToGoogleSheets() {
             showLoading(true);
             const loggedInUser = String(localStorage.getItem('currentUser') || '').trim();
+            const deviceId = getOrCreateDeviceId();
+            const deviceInfo = getDeviceInfo();
 
             const appData = {
                 categories: categories,
@@ -972,7 +1000,9 @@
                 // ส่งชื่อผู้ใช้งานไปพร้อมกับทุกการบันทึก
                 // เพื่อให้ ActivityLogs แสดงผู้ใช้งานได้ถูกต้อง
                 user: loggedInUser,
-                currentUser: loggedInUser
+                currentUser: loggedInUser,
+                deviceId: deviceId,
+                deviceInfo: deviceInfo
             };
 
             try {
