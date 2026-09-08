@@ -648,7 +648,7 @@
         // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
         let isDeleteMode = false;
 
-        // สถานะการส่งซื้อของสินค้า:
+        // สถานะการสั่งซื้อของสินค้า:
         // "ยังไม่สั่งซื้อ" = ยังไม่มีการสั่งซื้อ
         // "สั่งซื้อ" = ส่งซื้อแล้ว
         // เมื่อมีรายการรับเข้า (IN) ระบบจะเคลียร์กลับเป็น "ยังไม่สั่งซื้อ"
@@ -1651,7 +1651,7 @@
                     remark: finalRemark
                 });
 
-                // เมื่อรับสินค้าเข้า ให้เคลียร์สถานะการส่งซื้อของสินค้านั้นทันที
+                // เมื่อรับสินค้าเข้า ให้เคลียร์สถานะการสั่งซื้อของสินค้านั้นทันที
                 if (transType === 'IN') {
                     product.orderStatus = 'ยังไม่สั่งซื้อ';
                 } else if (!product.orderStatus) {
@@ -1939,7 +1939,7 @@ table.stock td:nth-child(7) { text-align:left; }
                     <th class="p-4 text-center">Safety Stock</th>
                     <th class="p-4 text-right">คงเหลือปัจจุบัน</th>
                     <th class="p-4 text-center">สถานะ</th>
-                    <th class="p-4 text-center min-w-[150px]">สถานะการส่งซื้อ</th>
+                    <th class="p-4 text-center min-w-[150px]">สถานะการสั่งซื้อ</th>
                     <th class="p-4 text-center">จัดการ</th>
                 `;
             } else {
@@ -1949,7 +1949,7 @@ table.stock td:nth-child(7) { text-align:left; }
                     <th class="p-4 text-center">Safety Stock</th>
                     <th class="p-4 text-right">คงเหลือปัจจุบัน</th>
                     <th class="p-4 text-center">สถานะ</th>
-                    <th class="p-4 text-center min-w-[150px]">สถานะการส่งซื้อ</th>
+                    <th class="p-4 text-center min-w-[150px]">สถานะการสั่งซื้อ</th>
                     <th class="p-4 text-center">จัดการ</th>
                 `;
             }
@@ -2451,7 +2451,7 @@ table.stock td:nth-child(7) { text-align:left; }
                         'คงเหลือปัจจุบัน': p.currentQty,
                         'หน่วยนับ': p.unit,
                         'สถานะ': statusText,
-                        'สถานะการส่งซื้อ': statusText === 'ต้องสั่งซื้อ' ? getOrderStatus(p) : '—'
+                        'สถานะการสั่งซื้อ': statusText === 'ต้องสั่งซื้อ' ? getOrderStatus(p) : '—'
                     };
                 });
 
