@@ -823,7 +823,6 @@
             const identity = getClientIdentity();
 
             // ส่งรหัสผ่านใหม่ไป Google Apps Script
-            // GAS จะบันทึก Settings และสร้าง ActivityLogs ให้เอง
             const payload = {
                 appPassword: newPass,
                 currentUser: identity.currentUser,
@@ -849,6 +848,7 @@
 
                 // บันทึกในเครื่องหลังจาก Server ตอบสำเร็จเท่านั้น
                 localStorage.setItem('appPassword', newPass);
+                await logActivity('เปลี่ยนรหัสผ่าน', 'เปลี่ยนรหัสผ่านเข้าใช้งานสำเร็จ');
 
                 alert('เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!');
                 closeChangePasswordModal();
@@ -1031,6 +1031,37 @@
             });
         }
 
+        // บันทึก ActivityLogs เฉพาะกิจกรรมจากปุ่มที่กำหนดเท่านั้น
+        async function logActivity(action, details = '') {
+            try {
+                const identity = getClientIdentity();
+                const payload = {
+                    activityLog: {
+                        timestamp: new Date().toISOString(),
+                        user: identity.currentUser || 'ไม่ทราบผู้ใช้งาน',
+                        deviceId: identity.deviceId || 'DEV-UNKNOWN',
+                        deviceInfo: identity.deviceInfo || (navigator.userAgent || 'Unknown device'),
+                        action: String(action || 'ดำเนินการ'),
+                        details: typeof details === 'object' ? JSON.stringify(details) : String(details || '')
+                    },
+                    currentUser: identity.currentUser,
+                    activityUser: identity.currentUser,
+                    user: identity.currentUser,
+                    deviceId: identity.deviceId,
+                    deviceInfo: identity.deviceInfo
+                };
+
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                    keepalive: true
+                });
+            } catch (err) {
+                // ActivityLog เป็นข้อมูลประกอบ ไม่ให้กระทบการทำงานหลักของระบบ
+                console.warn('ไม่สามารถบันทึก ActivityLog ได้:', err);
+            }
+        }
+
         async function saveDataToGoogleSheets() {
             showLoading(true);
 
@@ -1180,6 +1211,7 @@
                 });
 
                 await saveDataToGoogleSheets();
+                await logActivity('ลบรายการสินค้า', `ลบสินค้าที่เลือก ${idsToDelete.length} รายการ`);
                 toggleDeleteMode(false); // ปิดโหมดลบเมื่อลบเสร็จ
                 renderApp();
                 alert(`ลบรายการสินค้าเรียบร้อยแล้ว ${idsToDelete.length} รายการ`);
@@ -1201,6 +1233,7 @@
                 });
 
                 await saveDataToGoogleSheets();
+                await logActivity('ลบรายการสินค้า', `ลบสินค้า ${product.name} (รหัส ${product.id})`);
                 renderApp();
                 alert(`ลบรายการสินค้า ${product.name} เรียบร้อยแล้ว`);
             }
@@ -1808,6 +1841,7 @@
             // คำนวณยอดคงเหลือใหม่จากยอดตั้งต้น + ประวัติทั้งหมด เพื่อไม่ให้ตัวเลขคลาดเคลื่อน
             syncCurrentStockFromTransactions();
             await saveDataToGoogleSheets();
+            await logActivity('บันทึกรายการที่เลือก', `บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} จำนวน ${processedCount} รายการ`);
             alert(`บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} สำเร็จแล้ว ${processedCount} รายการ!`);
             document.getElementById('transRemark').value = '';
             renderApp();
@@ -1876,6 +1910,7 @@
             });
 
             await saveDataToGoogleSheets();
+            await logActivity('บันทึกยอดคงเหลือรอบเดือนเข้า Matrix', `บันทึกยอดตรวจนับวันที่ ${date} จำนวน ${Object.keys(newItems).length} รายการ`);
             alert(`ลงบันทึกการตรวจนับประจำวันที่ ${date} เข้าสู่ระบบ Matrix เรียบร้อยแล้ว!`);
             switchTab('matrix');
         }
@@ -2332,6 +2367,7 @@
             ].join('_');
 
             XLSX.writeFile(workbook, `Transaction_Logs_${filterPart}.xlsx`);
+            logActivity('Export ข้อมูลที่กรอง', `ส่งออกข้อมูลธุรกรรม ${filteredTransactions.length} รายการ`);
         }
 
         function exportAllToExcel(customFilename = null) {
