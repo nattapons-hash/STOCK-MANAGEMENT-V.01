@@ -304,9 +304,6 @@
                     <label class="text-sm font-medium text-purple-900">หมวดหมู่สินค้า:</label>
                     <select id="selectAuditCategory" onchange="renderNewAuditForm()" class="border border-purple-500 text-purple-800 bg-purple-50 font-medium rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                     </select>
-                    <button type="button" onclick="printNewAuditSheet()" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold px-4 py-2 rounded-xl text-sm shadow-md">
-                        🖨️ พิมพ์ใบตรวจนับ A4
-                    </button>
                 </div>
             </div>
 
@@ -980,15 +977,13 @@
         }
 
         // คืนค่า stock หลังทำรายการของแต่ละ transaction
-        // ใช้ยอดคงเหลือปัจจุบันจาก Products เป็นจุดอ้างอิง แล้วคำนวณย้อนกลับ
-        // เพื่อให้ยอดในหน้า Transaction ตรงกับ "คงเหลือปัจจุบัน" เสมอ
+        // สูตร: initialQty + IN - OUT โดยเรียงจากเก่า -> ใหม่
         function calculateTransactionBalances() {
             const balanceMap = new Map();
             const running = new Map();
 
-            // เริ่มจากยอดคงเหลือปัจจุบันที่บันทึกอยู่ใน Products
             products.forEach(p => {
-                running.set(String(p.id), Number(p.currentQty) || 0);
+                running.set(String(p.id), calculateInitialQty(p.id));
             });
 
             const ordered = transactions
@@ -996,32 +991,34 @@
                 .sort((a, b) => {
                     const ta = getTransactionTimeValue(a.t.timestamp);
                     const tb = getTransactionTimeValue(b.t.timestamp);
-                    if (ta !== tb) return tb - ta; // ใหม่ -> เก่า
-                    return b.index - a.index;
+                    if (ta !== tb) return ta - tb;
+                    return a.index - b.index;
                 });
 
             ordered.forEach(({ t }) => {
                 const id = String(t.productId);
-                if (!running.has(id)) running.set(id, 0);
-
-                // running คือยอด "หลังรายการนี้"
-                const afterBalance = Number(running.get(id)) || 0;
-                balanceMap.set(t, afterBalance);
-
-                const qty = Number(t.qty) || 0;
-                // ย้อนกลับไปหายอดก่อนรายการนี้
-                if (String(t.type).toUpperCase() === 'IN') {
-                    running.set(id, afterBalance - qty);
-                } else if (String(t.type).toUpperCase() === 'OUT') {
-                    running.set(id, afterBalance + qty);
+                if (!running.has(id)) {
+                    const product = products.find(p => String(p.id) === id);
+                    running.set(id, calculateInitialQty(id) || Number(product?.currentQty || 0));
                 }
+
+                let balance = Number(running.get(id)) || 0;
+                const qty = Number(t.qty) || 0;
+
+                if (String(t.type).toUpperCase() === 'IN') {
+                    balance += qty;
+                } else if (String(t.type).toUpperCase() === 'OUT') {
+                    balance -= qty;
+                }
+
+                running.set(id, balance);
+                balanceMap.set(t, balance);
             });
 
             return { balanceMap, running };
         }
 
-        // currentQty ใน Products คือยอดคงเหลือจริงของระบบ
-        // ไม่คำนวณทับจาก initialQty เพราะ initialQty เป็นยอดตั้งต้น ไม่ใช่ยอดปัจจุบัน
+        // ทำให้ currentQty ในหน้าเว็บตรงกับประวัติการรับ/เบิกเสมอ
         function syncCurrentStockFromTransactions() {
             const { running } = calculateTransactionBalances();
             products.forEach(p => {
@@ -1223,107 +1220,6 @@
             } finally {
                 showLoading(false);
             }
-        }
-
-        function printNewAuditSheet() {
-            const date = document.getElementById('newAuditDate')?.value || '';
-            const auditor = document.getElementById('newAuditUserSelect')?.value || '';
-            const cat = document.getElementById('selectAuditCategory')?.value || 'ALL';
-            const list = getAuditProductsForCurrentSelection();
-
-            if (!date) {
-                alert('กรุณาเลือกวันที่ตรวจนับก่อนพิมพ์ใบตรวจนับ');
-                return;
-            }
-            if (!list.length) {
-                alert('ไม่พบรายการสินค้าที่ต้องการพิมพ์');
-                return;
-            }
-
-            const categoryText = cat === 'ALL' ? 'ทุกหมวดหมู่' : cat;
-            const rows = list.map((p, i) => {
-                const ref = getAuditReferenceForProduct(p.id, date);
-                return `
-                    <tr>
-                        <td class="center">${i + 1}</td>
-                        <td>${escapeHtml(p.id)}</td>
-                        <td>${escapeHtml(p.name)}</td>
-                        <td class="center">${escapeHtml(p.unit || '')}</td>
-                        <td class="center bold">${ref.qty}</td>
-                        <td class="count-cell"></td>
-                        <td></td>
-                    </tr>`;
-            }).join('');
-
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                alert('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต Pop-up สำหรับหน้านี้');
-                return;
-            }
-
-            printWindow.document.write(`<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<title>ใบตรวจนับสต๊อก - ${escapeHtml(date)}</title>
-<style>
-@page { size: A4 portrait; margin: 9mm 10mm 10mm 10mm; }
-* { box-sizing: border-box; }
-body { font-family: Arial, Tahoma, sans-serif; color:#222; font-size:12px; line-height:1.25; margin:0; }
-.header { text-align:center; margin-bottom:6px; }
-.title { font-size:20px; line-height:1.2; font-weight:700; color:#111; }
-.subtitle { font-size:11px; margin-top:2px; color:#444; letter-spacing:.2px; }
-.info { width:100%; border-collapse:collapse; margin:7px 0 6px; table-layout:fixed; }
-.info td { padding:4px 5px; border:1px solid #999; font-size:11.5px; line-height:1.2; }
-.info .label { font-weight:700; width:15%; background:#f1f1f1; color:#333; }
-.info td:nth-child(2) { width:35%; }
-.info td:nth-child(4) { width:35%; }
-.small { font-size:10px; line-height:1.25; color:#666; margin-bottom:4px !important; }
-table.stock { width:100%; border-collapse:collapse; table-layout:fixed; }
-table.stock th, table.stock td { border:1px solid #777; padding:3.5px 5px; height:27px; font-size:11.5px; line-height:1.2; vertical-align:middle; }
-table.stock th { background:#e7e7e7; color:#222; text-align:center; font-weight:700; white-space:nowrap; }
-table.stock td:nth-child(1) { text-align:center; }
-table.stock td:nth-child(2) { white-space:nowrap; }
-table.stock td:nth-child(2), table.stock td:nth-child(3) { word-break:normal; overflow-wrap:break-word; }
-table.stock td:nth-child(3) { text-align:left; }
-table.stock td:nth-child(4), table.stock td:nth-child(5), table.stock td:nth-child(6) { text-align:center; }
-table.stock td:nth-child(5) { font-weight:700; }
-table.stock td:nth-child(6) { font-size:12.5px; font-weight:600; }
-table.stock td:nth-child(7) { text-align:left; }
-.center { text-align:center; }
-.bold { font-weight:700; }
-.count-cell { height:27px; }
-.note { height:27px; }
-.footer { margin-top:8px; font-size:10.5px; color:#333; }
-.sign { width:100%; border-collapse:collapse; margin-top:10px; }
-.sign td { width:50%; text-align:center; padding-top:20px; font-size:11px; color:#333; }
-@media print {
-  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  thead { display:table-header-group; }
-  tr { break-inside:avoid; page-break-inside:avoid; }
-  .header, .info { break-inside:avoid; page-break-inside:avoid; }
-}
-</style>
-</head>
-<body>
-<div class="header">
-    <div class="title">ใบตรวจนับสต๊อกสินค้า</div>
-    <div class="subtitle">STOCK COUNT SHEET</div>
-</div>
-<table class="info">
-<tr><td class="label">รอบตรวจนับ</td><td>________________________________</td><td class="label">วันที่</td><td>${escapeHtml(date)}</td></tr>
-<tr><td class="label">หมวดหมู่</td><td>${escapeHtml(categoryText)}</td><td class="label">ผู้ตรวจนับ</td><td>${escapeHtml(auditor)}</td></tr>
-</table>
-<div class="small" style="margin-bottom:5px;">ยอดอ้างอิง = ยอดเริ่มต้น หากมีการตรวจนับก่อนหน้า ระบบจะแสดงยอดนับจริงจากรอบล่าสุดก่อนวันที่ตรวจนับนี้</div>
-<table class="stock">
-<thead><tr><th style="width:5%">ลำดับ</th><th style="width:9%">Mat.No.</th><th style="width:27%">รายการสินค้า</th><th style="width:7%">หน่วย</th><th style="width:9%">ยอดอ้างอิง</th><th style="width:19%">นับจริง</th><th style="width:24%">หมายเหตุ</th></tr></thead>
-<tbody>${rows}</tbody>
-</table>
-<div class="footer">จำนวนรายการที่ตรวจนับทั้งหมด: __________ รายการ</div>
-<table class="sign"><tr><td>ผู้ตรวจนับ __________________________</td><td>ผู้ตรวจสอบ __________________________</td></tr><tr><td>วันที่ ______________________________</td><td>วันที่ ______________________________</td></tr></table>
-<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>
-</body></html>`);
-            printWindow.document.close();
         }
 
         /* --- ฟังก์ชันสลับโหมดการลบ --- */
@@ -2003,13 +1899,6 @@ table.stock td:nth-child(7) { text-align:left; }
                     remark: finalRemark
                 });
 
-                // อัปเดตยอดคงเหลือปัจจุบันทันทีให้ตรงกับรายการใหม่
-                if (transType === 'IN') {
-                    product.currentQty = (Number(product.currentQty) || 0) + qty;
-                } else if (transType === 'OUT') {
-                    product.currentQty = (Number(product.currentQty) || 0) - qty;
-                }
-
                 processedCount++;
             });
 
@@ -2480,9 +2369,7 @@ table.stock td:nth-child(7) { text-align:left; }
             const { balanceMap } = calculateTransactionBalances();
 
             tbody.innerHTML = filteredTransactions.map(t => {
-                const balance = balanceMap.has(t)
-                    ? balanceMap.get(t)
-                    : (t.balance !== undefined && t.balance !== null && t.balance !== '' ? Number(t.balance) : '-');
+                const balance = balanceMap.has(t) ? balanceMap.get(t) : '-';
                 return `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
