@@ -711,7 +711,7 @@
             document.getElementById('changePasswordModal').classList.remove('flex');
         }
 
-        function handleChangePassword(e) {
+        async function handleChangePassword(e) {
             e.preventDefault();
             const oldPass = document.getElementById('oldPassword').value;
             const newPass = document.getElementById('newPassword').value;
@@ -737,6 +737,10 @@
 
             // บันทึกรหัสผ่านใหม่
             localStorage.setItem("appPassword", newPass);
+            await logSelectedActivity(
+                'เปลี่ยนรหัสผ่าน',
+                'เปลี่ยนรหัสผ่านเข้าใช้งานสำเร็จ'
+            );
             alert("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว!");
             closeChangePasswordModal();
         }
@@ -980,6 +984,30 @@
             if (navigator.language) parts.push(navigator.language);
             if (navigator.userAgent) parts.push(navigator.userAgent);
             return parts.join(' / ').slice(0, 500);
+        }
+
+        async function logSelectedActivity(action, details) {
+            const user = String(localStorage.getItem('currentUser') || '').trim() || 'ไม่ทราบผู้ใช้งาน';
+            const deviceId = getOrCreateDeviceId();
+            const deviceInfo = getDeviceInfo();
+            const activityLog = {
+                timestamp: new Date().toISOString(),
+                user: user,
+                currentUser: user,
+                deviceId: deviceId,
+                deviceInfo: deviceInfo,
+                action: String(action || '').trim(),
+                details: String(details || '').trim()
+            };
+
+            try {
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ activityLog: activityLog })
+                });
+            } catch (err) {
+                console.error('ไม่สามารถบันทึก ActivityLogs:', err);
+            }
         }
 
         async function saveDataToGoogleSheets() {
@@ -1724,6 +1752,10 @@
             // คำนวณยอดคงเหลือใหม่จากยอดตั้งต้น + ประวัติทั้งหมด เพื่อไม่ให้ตัวเลขคลาดเคลื่อน
             syncCurrentStockFromTransactions();
             await saveDataToGoogleSheets();
+            await logSelectedActivity(
+                'บันทึกรายการที่เลือก',
+                `บันทึกรายการ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} ${processedCount} รายการ`
+            );
             alert(`บันทึกรายการ ${transType === 'OUT' ? 'เบิกออก' : 'รับเข้า'} สำเร็จแล้ว ${processedCount} รายการ!`);
             document.getElementById('transRemark').value = '';
             renderApp();
@@ -1876,6 +1908,10 @@
             });
 
             await saveDataToGoogleSheets();
+            await logSelectedActivity(
+                'บันทึกยอดนับจริงรอบนี้เข้า Matrix',
+                `บันทึกข้อมูลตรวจนับวันที่ ${date} จำนวน ${Object.keys(newItems).length} รายการ`
+            );
             alert(`ลงบันทึกการตรวจนับประจำวันที่ ${date} เข้าสู่ระบบ Matrix เรียบร้อยแล้ว!`);
             switchTab('matrix');
         }
@@ -2419,7 +2455,7 @@ table.stock td:nth-child(7) { text-align:left; }
             }).join('');
         }
 
-        function exportFilteredTransactionsToExcel() {
+        async function exportFilteredTransactionsToExcel() {
             if (transactions.length === 0) {
                 return alert('ยังไม่มีข้อมูลประวัติการเบิก-รับสินค้าให้ส่งออก');
             }
@@ -2458,6 +2494,10 @@ table.stock td:nth-child(7) { text-align:left; }
             ].join('_');
 
             XLSX.writeFile(workbook, `Transaction_Logs_${filterPart}.xlsx`);
+            await logSelectedActivity(
+                'Export ข้อมูลที่กรอง',
+                `ส่งออกข้อมูล Transaction ที่กรอง ${filteredTransactions.length} รายการ`
+            );
         }
 
         function exportAllToExcel(customFilename = null) {
