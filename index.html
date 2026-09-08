@@ -647,6 +647,80 @@
         let activeEditingId = null;
         let dateToDelete = null;
 
+        // ทำให้วันที่รอบตรวจนับจาก Google Sheets มีรูปแบบเดียวกันเสมอ
+        // เพื่อไม่ให้วันเดียวกันถูกสร้างเป็นหลายคอลัมน์ใน Matrix
+        function normalizeAuditDate(value) {
+            if (value === null || value === undefined || value === '') return '';
+            const raw = String(value).trim();
+            if (!raw) return '';
+
+            // ถ้าเป็น YYYY-MM-DD อยู่แล้ว ให้ใช้ตรง ๆ
+            const direct = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (direct) return `${direct[1]}-${direct[2]}-${direct[3]}`;
+
+            const d = new Date(raw);
+            if (!isNaN(d.getTime())) {
+                // ใช้ UTC สำหรับ ISO timestamp จาก Apps Script เพื่อไม่ให้วันเลื่อน
+                // และรองรับวันที่ไทยที่ถูกส่งมาเป็น timestamp
+                const y = d.getUTCFullYear();
+                const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(d.getUTCDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            }
+            return raw.slice(0, 10);
+        }
+
+        function normalizeAuditData() {
+            const oldDates = Array.isArray(auditDates) ? auditDates : [];
+            const oldRecords = auditRecords && typeof auditRecords === 'object' ? auditRecords : {};
+            const newDates = [];
+            const newRecords = {};
+
+            oldDates.forEach(rawDate => {
+                const date = normalizeAuditDate(rawDate);
+                if (!date) return;
+                const rawKey = String(rawDate).trim();
+                const rec = oldRecords[rawKey] || oldRecords[rawDate] || {};
+
+                if (!newRecords[date]) {
+                    newRecords[date] = {
+                        user: rec.user || '',
+                        items: {}
+                    };
+                    if (rec.savedAt) newRecords[date].savedAt = rec.savedAt;
+                    newDates.push(date);
+                }
+
+                if (rec.items && typeof rec.items === 'object') {
+                    Object.keys(rec.items).forEach(id => {
+                        // ข้อมูลที่อยู่ในวันที่เดียวกันให้รวมอยู่ในรอบเดียว
+                        newRecords[date].items[String(id)] = rec.items[id];
+                    });
+                }
+            });
+
+            // รองรับกรณี auditRecords มี key แต่ auditDates ไม่ครบ
+            Object.keys(oldRecords).forEach(rawKey => {
+                const date = normalizeAuditDate(rawKey);
+                if (!date) return;
+                const rec = oldRecords[rawKey] || {};
+                if (!newRecords[date]) {
+                    newRecords[date] = { user: rec.user || '', items: {} };
+                    if (rec.savedAt) newRecords[date].savedAt = rec.savedAt;
+                    newDates.push(date);
+                }
+                if (rec.items && typeof rec.items === 'object') {
+                    Object.keys(rec.items).forEach(id => {
+                        newRecords[date].items[String(id)] = rec.items[id];
+                    });
+                }
+            });
+
+            newDates.sort();
+            auditDates = newDates;
+            auditRecords = newRecords;
+        }
+
         // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
         let isDeleteMode = false;
 
@@ -1068,6 +1142,7 @@
                     }
                     if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
                     if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
+                    normalizeAuditData();
                     if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
                 }
 
