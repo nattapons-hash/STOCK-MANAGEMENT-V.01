@@ -1067,6 +1067,16 @@
 
             const identity = getClientIdentity();
 
+            // อัปเดตยอด balance ของทุก transaction ก่อนส่งขึ้น Google Sheets
+            // ใช้สูตรเดิม: initialQty + IN - OUT เรียงตามวันเวลา
+            // เพื่อให้คอลัมน์ balance ในชีต Transactions ไม่ว่าง
+            const transactionBalanceData = calculateTransactionBalances();
+            transactions.forEach(t => {
+                if (transactionBalanceData.balanceMap.has(t)) {
+                    t.balance = transactionBalanceData.balanceMap.get(t);
+                }
+            });
+
             const appData = {
                 categories: categories,
                 users: users,
@@ -2369,7 +2379,9 @@
             const { balanceMap } = calculateTransactionBalances();
 
             tbody.innerHTML = filteredTransactions.map(t => {
-                const balance = balanceMap.has(t) ? balanceMap.get(t) : '-';
+                const balance = balanceMap.has(t)
+                    ? balanceMap.get(t)
+                    : (t.balance !== undefined && t.balance !== null && t.balance !== '' ? Number(t.balance) : '-');
                 return `
                 <tr class="hover:bg-gray-50 transition">
                     <td class="p-4 text-xs text-gray-500 font-medium">${formatTransactionTimestamp(t.timestamp)}</td>
