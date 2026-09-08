@@ -1088,11 +1088,40 @@
                 appData.deviceId = identity.deviceId || getOrCreateDeviceId();
                 appData.deviceInfo = identity.deviceInfo || getDeviceInfo();
 
-                await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(appData),
-                    keepalive: true
-                });
+                // ห้ามใช้ keepalive กับข้อมูลก้อนใหญ่ของระบบนี้
+                // เพราะ browser จำกัดขนาด request แบบ keepalive และอาจทำให้ fetch
+                // ล้มเหลวทันที โดยเฉพาะตอนบันทึก AuditRecords/Transactions จำนวนมาก
+                const savePayload = JSON.stringify(appData);
+                let saved = false;
+                let lastSaveError = null;
+
+                // retry เพื่อรองรับ Apps Script ที่ตอบช้าหรือหลุดเป็นครั้งคราว
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        const response = await fetch(GOOGLE_SCRIPT_URL, {
+                            method: 'POST',
+                            body: savePayload
+                        });
+
+                        // fetch สำเร็จหมายถึง request ถูกส่งออกไปแล้ว
+                        // Apps Script เป็น Web App ที่อาจ redirect ระหว่างทาง
+                        // จึงไม่บังคับอ่าน response เพื่อไม่กระทบ CORS เดิม
+                        if (response) {
+                            saved = true;
+                            break;
+                        }
+                    } catch (postErr) {
+                        lastSaveError = postErr;
+                        if (attempt < 2) {
+                            await new Promise(resolve => setTimeout(resolve, 700));
+                        }
+                    }
+                }
+
+                if (!saved) {
+                    throw lastSaveError || new Error('ไม่สามารถส่งข้อมูลไปยัง Google Sheets ได้');
+                }
+
                 console.log('ส่งคำขอบันทึกข้อมูลไปยัง Google Sheets เรียบร้อย');
             } catch (err) {
                 console.error('เกิดข้อผิดพลาดในการบันทึกข้อมูลไปยัง Google Sheets:', err);
