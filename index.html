@@ -648,6 +648,26 @@
         // ตัวแปรสำหรับควบคุมโหมดลบสินค้า
         let isDeleteMode = false;
 
+        // สถานะการส่งซื้อของสินค้า:
+        // "ยังไม่สั่งซื้อ" = ยังไม่มีการสั่งซื้อ
+        // "สั่งซื้อ" = ส่งซื้อแล้ว
+        // เมื่อมีรายการรับเข้า (IN) ระบบจะเคลียร์กลับเป็น "ยังไม่สั่งซื้อ"
+        function getOrderStatus(product) {
+            return product && product.orderStatus === 'สั่งซื้อ'
+                ? 'สั่งซื้อ'
+                : 'ยังไม่สั่งซื้อ';
+        }
+
+        async function setOrderStatus(productId, status) {
+            const product = products.find(p => String(p.id) === String(productId));
+            if (!product) return;
+
+            product.orderStatus = status === 'สั่งซื้อ' ? 'สั่งซื้อ' : 'ยังไม่สั่งซื้อ';
+
+            await saveDataToGoogleSheets();
+            renderApp();
+        }
+
         /* --- ฟังก์ชันล็อกเอาท์และเปลี่ยนรหัสผ่าน --- */
         function logout() {
             if (confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
@@ -750,6 +770,11 @@
         }
 
         function renderApp() {
+            products.forEach(p => {
+                if (p.orderStatus !== 'สั่งซื้อ' && p.orderStatus !== 'ยังไม่สั่งซื้อ') {
+                    p.orderStatus = 'ยังไม่สั่งซื้อ';
+                }
+            });
             syncCurrentStockFromTransactions();
             renderMatrixTable();
             renderQuickStockTable();
@@ -925,7 +950,15 @@
                     if (Array.isArray(remoteData.categories) && remoteData.categories.length > 0) categories = remoteData.categories;
                     if (Array.isArray(remoteData.users) && remoteData.users.length > 0) users = remoteData.users;
                     if (Array.isArray(remoteData.auditUsers) && remoteData.auditUsers.length > 0) auditUsers = remoteData.auditUsers;
-                    if (Array.isArray(remoteData.products)) products = remoteData.products;
+                    if (Array.isArray(remoteData.products)) {
+                        products = remoteData.products;
+                        // รองรับข้อมูลสินค้าเดิมที่ยังไม่มีฟิลด์ orderStatus
+                        products.forEach(p => {
+                            if (p.orderStatus !== 'สั่งซื้อ' && p.orderStatus !== 'ยังไม่สั่งซื้อ') {
+                                p.orderStatus = 'ยังไม่สั่งซื้อ';
+                            }
+                        });
+                    }
                     if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
                     if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
                     if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
@@ -1114,7 +1147,8 @@
                                     currentQty: qty,
                                     initialQty: qty,
                                     unit: unit,
-                                    safetyStock: safety
+                                    safetyStock: safety,
+                                    orderStatus: 'ยังไม่สั่งซื้อ'
                                 });
                                 addedCount++;
                             }
@@ -1617,6 +1651,13 @@
                     remark: finalRemark
                 });
 
+                // เมื่อรับสินค้าเข้า ให้เคลียร์สถานะการส่งซื้อของสินค้านั้นทันที
+                if (transType === 'IN') {
+                    product.orderStatus = 'ยังไม่สั่งซื้อ';
+                } else if (!product.orderStatus) {
+                    product.orderStatus = 'ยังไม่สั่งซื้อ';
+                }
+
                 processedCount++;
             });
 
@@ -1898,6 +1939,7 @@ table.stock td:nth-child(7) { text-align:left; }
                     <th class="p-4 text-center">Safety Stock</th>
                     <th class="p-4 text-right">คงเหลือปัจจุบัน</th>
                     <th class="p-4 text-center">สถานะ</th>
+                    <th class="p-4 text-center min-w-[150px]">สถานะการส่งซื้อ</th>
                     <th class="p-4 text-center">จัดการ</th>
                 `;
             } else {
@@ -1907,6 +1949,7 @@ table.stock td:nth-child(7) { text-align:left; }
                     <th class="p-4 text-center">Safety Stock</th>
                     <th class="p-4 text-right">คงเหลือปัจจุบัน</th>
                     <th class="p-4 text-center">สถานะ</th>
+                    <th class="p-4 text-center min-w-[150px]">สถานะการส่งซื้อ</th>
                     <th class="p-4 text-center">จัดการ</th>
                 `;
             }
@@ -1923,7 +1966,7 @@ table.stock td:nth-child(7) { text-align:left; }
                 return true;
             });
 
-            const colSpanTotal = isDeleteMode ? 7 : 6;
+            const colSpanTotal = isDeleteMode ? 8 : 7;
 
             if (list.length === 0) {
                 tbody.innerHTML = `<tr><td class="p-6 text-center text-gray-400" colspan="${colSpanTotal}">ไม่พบรายการสินค้าตามเงื่อนไขที่เลือก</td></tr>`;
@@ -1990,14 +2033,28 @@ table.stock td:nth-child(7) { text-align:left; }
                                </td>`
                             : '';
 
+                        const stockStatusNeedsOrder = safety > 0 && p.currentQty <= safety;
+                        const orderStatus = getOrderStatus(p);
+                        const orderStatusControl = stockStatusNeedsOrder
+                            ? `<select onchange="setOrderStatus('${escapeHtml(p.id)}', this.value)"
+                                       class="border ${orderStatus === 'สั่งซื้อ'
+                                           ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                                           : 'border-red-300 bg-red-50 text-red-700'}
+                                           rounded-lg px-2.5 py-1.5 text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-500">
+                                   <option value="ยังไม่สั่งซื้อ" ${orderStatus === 'ยังไม่สั่งซื้อ' ? 'selected' : ''}>ยังไม่สั่งซื้อ</option>
+                                   <option value="สั่งซื้อ" ${orderStatus === 'สั่งซื้อ' ? 'selected' : ''}>สั่งซื้อ</option>
+                               </select>`
+                            : `<span class="text-xs text-gray-400">—</span>`;
+
                         bodyHTML += `
                             <tr class="hover:bg-gray-50 transition">
                                 ${checkboxCol}
-                                <td class="p-4 font-semibold text-gray-700">${p.id}</td>
-                                <td class="p-4 font-medium text-gray-800">${p.name}</td>
-                                <td class="p-4 text-center font-semibold text-gray-700">${safety} ${p.unit}</td>
-                                <td class="p-4 text-right font-bold text-gray-900 text-base">${p.currentQty} ${p.unit}</td>
+                                <td class="p-4 font-semibold text-gray-700">${escapeHtml(p.id)}</td>
+                                <td class="p-4 font-medium text-gray-800">${escapeHtml(p.name)}</td>
+                                <td class="p-4 text-center font-semibold text-gray-700">${safety} ${escapeHtml(p.unit)}</td>
+                                <td class="p-4 text-right font-bold text-gray-900 text-base">${p.currentQty} ${escapeHtml(p.unit)}</td>
                                 <td class="p-4 text-center">${statusBadge}</td>
+                                <td class="p-4 text-center">${orderStatusControl}</td>
                                 <td class="p-4 text-center">
                                     <div class="flex items-center justify-center gap-2">
                                         ${actionButtons}
@@ -2393,7 +2450,8 @@ table.stock td:nth-child(7) { text-align:left; }
                         'Safety Stock': safety,
                         'คงเหลือปัจจุบัน': p.currentQty,
                         'หน่วยนับ': p.unit,
-                        'สถานะ': statusText
+                        'สถานะ': statusText,
+                        'สถานะการส่งซื้อ': statusText === 'ต้องสั่งซื้อ' ? getOrderStatus(p) : '—'
                     };
                 });
 
