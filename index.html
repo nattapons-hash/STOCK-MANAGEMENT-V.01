@@ -192,7 +192,7 @@
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2">
                 <div>
                     <h2 class="text-lg font-bold text-gray-800">ตารางเปรียบเทียบผลต่างการนับสต๊อก (Stock Audit Diff Matrix)</h2>
-                    <p class="text-xs text-gray-500">* ไฮไลท์ <span class="text-green-700 font-bold bg-green-100 px-2 py-0.5 rounded border border-green-200">สีเขียว = เกิน (+)</span> | <span class="text-red-600 font-bold bg-rose-100 px-2 py-0.5 rounded border border-red-200">สีแดง = ขาด (-)</span> | สามารถกดปุ่ม 🗑️ ที่หัวคอลัมน์เพื่อลบข้อมูลรอบตรวจนับได้</p>
+                    <p class="text-xs text-gray-500">* ไฮไลท์ <span class="text-green-700 font-bold bg-green-100 px-2 py-0.5 rounded border border-green-200">สีเขียว = เกิน (+)</span> | <span class="text-red-600 font-bold bg-rose-100 px-2 py-0.5 rounded border border-red-200">สีแดง = ขาด (-)</span> | สามารถกดปุ่ม “ลบรอบนี้” ที่หัวคอลัมน์เพื่อลบข้อมูลรอบตรวจนับได้</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
                     <div class="flex items-center gap-1.5 bg-gray-50 p-1 px-2 rounded-xl border border-gray-200">
@@ -1479,6 +1479,10 @@
             syncCurrentStockFromTransactions();
 
             await saveDataToGoogleSheets();
+            await logSelectedActivity(
+                'ลบรอบนี้',
+                `ลบข้อมูลการตรวจนับรอบวันที่ ${deletedDate}`
+            );
             closeDeleteAuditModal();
             renderApp();
         }
@@ -1527,10 +1531,10 @@
                 const auditor = auditRecords[date]?.user ? `<br><span class="text-[10px] text-gray-500 font-normal">(${auditRecords[date].user})</span>` : '';
                 headHTML += `
                     <th class="p-2 border-r text-center bg-purple-100 text-purple-900 min-w-[100px] relative group" title="ตรวจนับจริง ${date}">
-                        <div class="flex items-center justify-center gap-1">
+                        <div class="flex flex-col items-center justify-center gap-1">
                             <span>นับจริง<br>${date}${auditor}</span>
-                            <button onclick="openDeleteAuditModal('${date}')" class="text-red-500 hover:text-red-700 hover:bg-red-100 p-1 rounded-lg transition" title="ลบข้อมูลการตรวจนับรอบวันที่ ${date}">
-                                🗑️
+                            <button onclick="openDeleteAuditModal('${date}')" class="text-[10px] leading-tight text-red-600 hover:text-red-700 bg-white hover:bg-red-50 border border-red-300 px-2 py-0.5 rounded-md transition whitespace-nowrap" title="ลบข้อมูลการตรวจนับรอบวันที่ ${date}">
+                                ลบรอบนี้
                             </button>
                         </div>
                     </th>
