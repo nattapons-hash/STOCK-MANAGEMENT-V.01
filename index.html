@@ -1158,7 +1158,7 @@
                 console.error('ไม่สามารถดึงข้อมูลจาก Google Sheets ได้:', err);
                 const message = err && err.message ? err.message : String(err);
                 console.error('Google Sheets URL:', GOOGLE_SCRIPT_URL);
-                alert('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้\n\n' + message + '\n\nกรุณาตรวจสอบ URL ของ Google Apps Script และการ Deploy เป็น Web App');
+                alert('ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้\n\n' + message + '\n\nให้ตรวจสอบว่า Code.gs ถูก Deploy เป็น Web App เวอร์ชันล่าสุดแล้ว และใช้ URL เดิม');
             } finally {
                 showLoading(false);
             }
