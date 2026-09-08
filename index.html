@@ -977,13 +977,15 @@
         }
 
         // คืนค่า stock หลังทำรายการของแต่ละ transaction
-        // สูตร: initialQty + IN - OUT โดยเรียงจากเก่า -> ใหม่
+        // ใช้ยอดคงเหลือปัจจุบันจาก Products เป็นจุดอ้างอิง แล้วคำนวณย้อนกลับ
+        // เพื่อให้ยอดในหน้า Transaction ตรงกับ "คงเหลือปัจจุบัน" เสมอ
         function calculateTransactionBalances() {
             const balanceMap = new Map();
             const running = new Map();
 
+            // เริ่มจากยอดคงเหลือปัจจุบันที่บันทึกอยู่ใน Products
             products.forEach(p => {
-                running.set(String(p.id), calculateInitialQty(p.id));
+                running.set(String(p.id), Number(p.currentQty) || 0);
             });
 
             const ordered = transactions
@@ -991,43 +993,35 @@
                 .sort((a, b) => {
                     const ta = getTransactionTimeValue(a.t.timestamp);
                     const tb = getTransactionTimeValue(b.t.timestamp);
-                    if (ta !== tb) return ta - tb;
-                    return a.index - b.index;
+                    if (ta !== tb) return tb - ta; // ใหม่ -> เก่า
+                    return b.index - a.index;
                 });
 
             ordered.forEach(({ t }) => {
                 const id = String(t.productId);
-                if (!running.has(id)) {
-                    const product = products.find(p => String(p.id) === id);
-                    running.set(id, calculateInitialQty(id) || Number(product?.currentQty || 0));
-                }
+                if (!running.has(id)) running.set(id, 0);
 
-                let balance = Number(running.get(id)) || 0;
+                // running คือยอด "หลังรายการนี้"
+                const afterBalance = Number(running.get(id)) || 0;
+                balanceMap.set(t, afterBalance);
+
                 const qty = Number(t.qty) || 0;
-
+                // ย้อนกลับไปหายอดก่อนรายการนี้
                 if (String(t.type).toUpperCase() === 'IN') {
-                    balance += qty;
+                    running.set(id, afterBalance - qty);
                 } else if (String(t.type).toUpperCase() === 'OUT') {
-                    balance -= qty;
+                    running.set(id, afterBalance + qty);
                 }
-
-                running.set(id, balance);
-                balanceMap.set(t, balance);
             });
 
             return { balanceMap, running };
         }
 
-        // ทำให้ currentQty ในหน้าเว็บตรงกับประวัติการรับ/เบิกเสมอ
+        // currentQty ใน Products คือยอดคงเหลือจริงของระบบ
+        // ไม่คำนวณทับจาก initialQty เพราะ initialQty เป็นยอดตั้งต้น ไม่ใช่ยอดปัจจุบัน
         function syncCurrentStockFromTransactions() {
-            const { running } = calculateTransactionBalances();
             products.forEach(p => {
-                const id = String(p.id);
-                if (running.has(id)) {
-                    p.currentQty = Number(running.get(id)) || 0;
-                } else {
-                    p.currentQty = calculateInitialQty(id);
-                }
+                p.currentQty = Number(p.currentQty) || 0;
             });
         }
 
@@ -1068,8 +1062,8 @@
             const identity = getClientIdentity();
 
             // อัปเดตยอด balance ของทุก transaction ก่อนส่งขึ้น Google Sheets
-            // ใช้สูตรเดิม: initialQty + IN - OUT เรียงตามวันเวลา
-            // เพื่อให้คอลัมน์ balance ในชีต Transactions ไม่ว่าง
+            // อ้างอิงยอดคงเหลือปัจจุบันจาก Products แล้วคำนวณย้อนกลับตามรายการ
+            // เพื่อให้หน้า Transaction และสต๊อกคงเหลือใช้ยอดเดียวกัน
             const transactionBalanceData = calculateTransactionBalances();
             transactions.forEach(t => {
                 if (transactionBalanceData.balanceMap.has(t)) {
@@ -1908,6 +1902,13 @@
                     user: user,
                     remark: finalRemark
                 });
+
+                // อัปเดตยอดคงเหลือปัจจุบันทันทีให้ตรงกับรายการใหม่
+                if (transType === 'IN') {
+                    product.currentQty = (Number(product.currentQty) || 0) + qty;
+                } else if (transType === 'OUT') {
+                    product.currentQty = (Number(product.currentQty) || 0) - qty;
+                }
 
                 processedCount++;
             });
