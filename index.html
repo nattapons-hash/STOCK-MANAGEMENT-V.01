@@ -1071,11 +1071,42 @@
             }
         }
 
+        function loadDataFromGoogleSheetsJSONP() {
+            return new Promise((resolve, reject) => {
+                const callbackName = '__stockSheetsCallback_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                const script = document.createElement('script');
+                const timeout = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('หมดเวลารอข้อมูลจาก Google Sheets'));
+                }, 20000);
+
+                function cleanup() {
+                    clearTimeout(timeout);
+                    try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                }
+
+                window[callbackName] = function(data) {
+                    cleanup();
+                    resolve(data);
+                };
+
+                script.onerror = function() {
+                    cleanup();
+                    reject(new Error('ไม่สามารถเชื่อมต่อ Google Apps Script ได้'));
+                };
+
+                script.src = GOOGLE_SCRIPT_URL + '?callback=' + encodeURIComponent(callbackName) + '&t=' + Date.now();
+                document.head.appendChild(script);
+            });
+        }
+
         async function loadDataFromGoogleSheets() {
             showLoading(true);
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL + '?t=' + new Date().getTime());
-                const remoteData = await response.json();
+                // ใช้ JSONP สำหรับการอ่านข้อมูล เพื่อไม่ให้ CORS/redirect ของ Apps Script
+                // ทำให้หน้า GitHub โหลดข้อมูลไม่ได้หลัง refresh
+                const remoteData = await loadDataFromGoogleSheetsJSONP();
                 
                 if (remoteData && typeof remoteData === 'object') {
                     if (Array.isArray(remoteData.categories) && remoteData.categories.length > 0) categories = remoteData.categories;
@@ -1087,9 +1118,7 @@
                     if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
                 }
 
-                // ใช้ยอดตั้งต้นและประวัติรับ/เบิกเป็นแหล่งคำนวณสต๊อกหลัก
                 syncCurrentStockFromTransactions();
-
                 renderCategoryOptions();
                 renderUserOptions();
                 renderAuditUserOptions();
