@@ -958,6 +958,8 @@
 
         async function saveDataToGoogleSheets() {
             showLoading(true);
+            const loggedInUser = String(localStorage.getItem('currentUser') || '').trim();
+
             const appData = {
                 categories: categories,
                 users: users,
@@ -965,7 +967,12 @@
                 products: products,
                 auditDates: auditDates,
                 auditRecords: auditRecords,
-                transactions: transactions
+                transactions: transactions,
+
+                // ส่งชื่อผู้ใช้งานไปพร้อมกับทุกการบันทึก
+                // เพื่อให้ ActivityLogs แสดงผู้ใช้งานได้ถูกต้อง
+                user: loggedInUser,
+                currentUser: loggedInUser
             };
 
             try {
