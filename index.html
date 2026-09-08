@@ -1161,7 +1161,10 @@
                         if (Array.isArray(remoteData.users) && remoteData.users.length > 0) users = remoteData.users;
                         if (Array.isArray(remoteData.auditUsers) && remoteData.auditUsers.length > 0) auditUsers = remoteData.auditUsers;
                         if (Array.isArray(remoteData.products)) products = remoteData.products;
-                        if (Array.isArray(remoteData.auditDates)) auditDates = remoteData.auditDates;
+                        if (Array.isArray(remoteData.auditDates)) {
+                            // กันข้อมูลวันตรวจนับซ้ำจากข้อมูลเก่าที่อาจมี Date object ซ้ำวันเดียวกัน
+                            auditDates = [...new Set(remoteData.auditDates.map(d => String(d).slice(0, 10)).filter(Boolean))];
+                        }
                         if (remoteData.auditRecords && typeof remoteData.auditRecords === 'object') auditRecords = remoteData.auditRecords;
                         if (Array.isArray(remoteData.transactions)) transactions = remoteData.transactions;
 
@@ -1631,6 +1634,11 @@
             if (!head || !body) return;
 
             const filterCat = document.getElementById('matrixCategoryFilter') ? document.getElementById('matrixCategoryFilter').value : 'ALL';
+
+            // ป้องกัน auditDates ซ้ำ ทำให้ Matrix แสดงหลายคอลัมน์ของวันเดียวกัน
+            if (Array.isArray(auditDates)) {
+                auditDates = [...new Set(auditDates.map(d => String(d).slice(0, 10)).filter(Boolean))];
+            }
 
             if (products.length === 0) {
                 head.innerHTML = '';
